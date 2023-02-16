@@ -453,7 +453,7 @@ class Bert_Span(nn.Module):
     def init_lrs(self, num_step_per_epo=None, epo=None, num_warmup_steps=None):
         """Learing Rate Schedual"""
         if epo is None:
-            epo = self.args.n_epochs
+            epo = self.args.num_epochs
         # num_step_per_epo = 209  # onto task0-5
         # num_step_per_epo = 2014  # few task0
         if num_step_per_epo is None:
@@ -1063,7 +1063,7 @@ class Bert_Seq(nn.Module):
 
     def init_lrs(self, num_step_per_epo=None, epo=None, num_warmup_steps=None):
         if epo is None:
-            epo = self.args.n_epochs
+            epo = self.args.num_epochs
         # num_step_per_epo = 209  # onto task0-5
         # num_step_per_epo = 2014  # few task0
         if num_step_per_epo is None:

@@ -1908,7 +1908,7 @@ class NerExample:
                 exm.pred_ent_dct = pred_ent_dct
 
             if external_attrs is not None:
-                (exm.__setattr__(attr, obj[attr]) for attr in external_attrs if attr in obj)
+                [exm.__setattr__(attr, obj[attr]) for attr in external_attrs if attr in obj]
             if eid:
                 exm.eid = len(exm_lst)
             exm_lst.append(exm)
@@ -2264,6 +2264,9 @@ class NerExample:
         # Conlleval format
         detail_info_str += f'{" " * 19}precision: {prec:7.2%}; recall: {rec:7.2%}; FB1: {f1:7.2%};  num_preds: {num_preds:4.0f}; num_golds: {num_golds:4.0f}; num_correct: {tp:4.0f};\n'
         for ent_type in sorted(detail_stat):
+            # if verbose:  # 按各实体类型分别输出指标
+            #     print(f'{ent_type:>17}: precision: {detail_stat[ent_type]["prec"]:7.2%}; recall: {detail_stat[ent_type]["rec"]:7.2%}; FB1: {detail_stat[ent_type]["f1"]:7.2%};'
+            #           f'  num_preds: {detail_stat[ent_type]["num_preds"]:4.0f}; num_golds: {detail_stat[ent_type]["num_golds"]:4.0f};')
             detail_info_str += f'{ent_type:>17}: precision: {detail_stat[ent_type]["prec"]:7.2%}; recall: {detail_stat[ent_type]["rec"]:7.2%}; FB1: {detail_stat[ent_type]["f1"]:7.2%};'
             detail_info_str += f'  num_preds: {detail_stat[ent_type]["num_preds"]:4.0f}; num_golds: {detail_stat[ent_type]["num_golds"]:4.0f};\n'
 
@@ -2274,7 +2277,7 @@ class NerExample:
                 detail_info_table.add_row(f'{ent_type}|{v["prec"]:.2%}|{v["rec"]:.2%}|{v["f1"]:.2%}|{v["num_golds"]:.0f}|{v["num_preds"]:.0f}'.split('|'))
             detail_info_table.add_row(f'Micro|{prec:.2%}|{rec:.2%}|{f1:.2%}|{num_golds:.0f}|{num_preds:.0f}'.split('|'))
             if macro:
-                detail_info_table.add_row(f'Micro|{macro_prec:.2%|}|{macro_rec:.2%}|{macro_f1:.2%}|{num_golds:.0f}|{num_preds:.0f}'.split('|'))
+                detail_info_table.add_row(f'Macro|{macro_prec:.2%}|{macro_rec:.2%}|{macro_f1:.2%}|{num_golds:.0f}|{num_preds:.0f}'.split('|'))
             detail_info_table.set_style(13)  # MSWORD_FRIENDLY = 11 PLAIN_COLUMNS = 12 MARKDOWN = 13
             detail_info_str = detail_info_table.get_string()
 
@@ -2284,7 +2287,7 @@ class NerExample:
             #     detail_info_table.add_row(*f'{ent_type}|{v["prec"]:.2%}|{v["rec"]:.2%}|{v["f1"]:.2%}|{v["num_golds"]:.0f}|{v["num_preds"]:.0f}'.split('|'))
             # detail_info_table.add_row(*f'Micro|{prec:.2%}|{rec:.2%}|{f1:.2%}|{num_golds:.0f}|{num_preds:.0f}'.split('|'))
             # if macro:
-            #     detail_info_table.add_row(*f'Micro|{macro_prec:.2%}|{macro_rec:.2%}|{macro_f1:.2%}|{num_golds:.0f}|{num_preds:.0f}'.split('|'))
+            #     detail_info_table.add_row(*f'Macro|{macro_prec:.2%}|{macro_rec:.2%}|{macro_f1:.2%}|{num_golds:.0f}|{num_preds:.0f}'.split('|'))
 
         if verbose:
             print(detail_info_str)
