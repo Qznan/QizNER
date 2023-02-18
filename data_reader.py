@@ -150,7 +150,7 @@ class NerDataReader:
                         # 一般torch的向量都是float()而默认的numpy则是doble(float64)
                         span_tgt_onehot = np.zeros([len(span_ner_tgt_lst), ent_size], dtype='float32')  # [num_spans, ent]
                         for i, tag in enumerate(span_ner_tgt_lst):
-                            if tag != 'O':
+                            if tag != 'O' and tag in self.ent2id:
                                 span_tgt_onehot[i][self.ent2id[tag]] = 1.
                         exm.train_cache.update(span_tgt=span_tgt_onehot)
                     elif loss_type == 'softmax':

@@ -1,18 +1,16 @@
 #!/usr/bin/env python
 # coding=utf-8
 """
-model: span-level mask ner model
+model: span-level and seq-labeled ner model
+started from 2021/1
 """
-import logging
-
-import ipdb
+import math, time, os
+from typing import *
 import torch
 import torch.nn as nn
-from typing import List, Optional, Union
 from transformers import BertConfig, BertModel, RobertaModel, get_cosine_schedule_with_warmup, get_constant_schedule_with_warmup, get_linear_schedule_with_warmup
-import math, time, os
+import ipdb
 from datautils import Meaner, CUDA_Recorder, Time_Recorder
-
 import logging
 
 logger = logging.getLogger(__name__)
