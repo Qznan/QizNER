@@ -1,7 +1,8 @@
 # !/usr/bin/env python
 # coding=utf-8
 """
-model: span-level ner model
+Miscellaneous utils for IO and NER.
+Started from 2019
 """
 import argparse
 import os, re, glob, shutil, copy, time, datetime
@@ -821,13 +822,24 @@ def get_args_like_object():
 
 
 def save_args_to_json_file(args, json_file, verbose=False):
-    args_json = {k: v for k, v in vars(args).items() if isinstance(v, (str, int, float))}  # only save certain type supported by json
+    # args_json = {k: v for k, v in vars(args).items() if isinstance(v, (str, int, float))}  # only save certain type supported by json
     # def save_list(v):
     #     if isinstance(v, list):
     #         if not v or all(isinstance(v_, (str, int, float)) for v_ in v):
     #             return True
     #     return False
     # args_json = {k: v for k, v in vars(args).items() if isinstance(v, (str, int, float)) or save_list(v)}  # only save certain type supported by json
+    args_json = {}
+    for k, v in vars(args).items():
+        if isinstance(v, (str, int, float)):  # json valid types
+            args_json[k] = v
+        elif isinstance(v, list):  # list of valid types
+            if all(isinstance(v_, (str, int, float)) for v_ in v):
+                args_json[k] = v
+        elif isinstance(v, Path):  # Path object saved as string
+            args_json[k] = str(v)
+        else:
+            pass
     save_json(args_json, json_file, verbose=verbose)
 
 
@@ -1416,7 +1428,9 @@ class NerExample:
         return json.dumps(json_dct, ensure_ascii=False)
 
     def to_json_str(self, val_at_end=True, only_pred_str=False, flat_pred_ent=False, external_attrs=None, for_human_read=True):
-        """ val_at_end = True: 省略end直接将ent输出 """
+        """ val_at_end = True: 省略end直接将ent输出
+            only_pred_str = True  # remove pred_score and other
+        """
         json_dct = {'text': self.text, 'ent_dct': copy.deepcopy(self.ent_dct)}
         for ent, v_lst in json_dct['ent_dct'].items():
             for v in v_lst:
@@ -1848,6 +1862,9 @@ class NerExample:
     @staticmethod
     def save_to_jsonl(ner_exm_lst: List, output_file, val_at_end=True, only_pred_str=False, flat_pred_ent=False, external_attrs=None, overwrite=True,
                       for_human_read=True):
+        """ val_at_end = True: 省略end直接将ent输出
+            only_pred_str = True  # remove pred_score and other
+        """
         make_sure_dir_exist(output_file)
         if os.path.exists(output_file) and not overwrite:
             return

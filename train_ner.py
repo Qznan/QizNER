@@ -4,7 +4,7 @@
 model: span-level and seq-labeled ner model
 started from 2021/1
 """
-import os, time, sys, argparse, copy, random
+import os, time, sys, argparse, copy, random, subprocess
 sys.path = ['.'] + sys.path
 import torch
 import numpy as np
@@ -725,18 +725,16 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.gpu == '-1':
-        args.use_gpu = False
         args.device = torch.device('cpu')
     else:
-        args.use_gpu = True
         if args.gpu == '-2':
-            import subprocess
-
-            args.device = utils.auto_device(logger, torch, np, subprocess)
+            args.device = utils.auto_device(logger, torch, np, subprocess)  # may be false to any GPUs
         else:
             args.device = torch.device(f'cuda:{args.gpu}')
+    args.use_gpu = False
     if args.device.type.startswith('cuda'):
         torch.cuda.set_device(args.device)  # 不用受CUDA_VISIBLE_DEVICES限制 支持torch1.6 1.7
+        args.use_gpu = True
     logger.info(f'truly used gpu: {args.device}')
 
     args.bert_model_dir = ['huggingface_model_resource/bert-large-cased',
