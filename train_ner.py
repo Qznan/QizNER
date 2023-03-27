@@ -285,7 +285,7 @@ class Trainer:
             f1_meaner.add(*f1_detail)
             loss_meaner.add(float(span_loss))
 
-            if mode in ['test', 'dev'] or epo > 0:
+            if mode in ['test', 'dev'] or epo > 1:
                 # batch中切分每个的span_level_lst
                 batch_predict_lst = torch.split(batch_predict.detach().cpu(), (batch_seq_len * (batch_seq_len + 1) / 2).int().tolist())  # 根据每个batch中的样本拆开 list of [num_spans, ent]
                 for exm, length, pred_prob in zip(batch_ner_exm, batch_seq_len.tolist(), batch_predict_lst):
@@ -908,6 +908,24 @@ if __name__ == "__main__":
         args.train_dataset = datareader.build_dataset(utils.NerExample.load_from_jsonl('', token_deli=''), lang='ZHENG', arch=args.arch)
         args.test_dataset = datareader.build_dataset(utils.NerExample.load_from_jsonl('', token_deli=''), lang='ZHENG', arch=args.arch)
 
+    if args.corpus == 'event':
+        """ test """
+        args.bert_model_dir = 'huggingface_model_resource/bert-base-multilingual-cased'
+        # args.bert_model_dir = 'huggingface_model_resource/mengzi-bert-base-fin'
+        # args.bert_model_dir = 'huggingface_model_resource/roberta-base-finetuned-cluener2020-chinese'
+        args.bert_model_dir = 'huggingface_model_resource/chinese-roberta-wwm-ext'
+        # args.bert_model_dir = 'huggingface_model_resource/nghuyong/ernie-3.0-base-zh'
+
+        exm_lst = utils.NerExample.load_from_jsonl('tmp_test/long_text.jsonl', token_deli='')
+        args.flat = True
+        ent_lst = utils.NerExample.get_ents_set(exm_lst)
+        if args.span_loss_type == 'softmax': ent_lst = ['O'] + ent_lst
+        datareader = NerDataReader(args.bert_model_dir, 512, ent_file_or_ent_lst=ent_lst, loss_type=args.span_loss_type, args=args)
+        args.train_dataset = datareader.build_dataset(exm_lst[:-500], lang='ZHENG', arch=args.arch)
+        args.test_dataset = datareader.build_dataset(exm_lst[-500:], lang='ZHENG', arch=args.arch)
+        # args.train_dataset = datareader.build_dataset(exm_lst[:500], lang='ZHENG', arch=args.arch)
+        # args.test_dataset = datareader.build_dataset(exm_lst[500:600], lang='ZHENG', arch=args.arch)
+
     if args.use_refine_mask:
         for name in ['train_dataset', 'dev_dataset', 'test_dataset']:
             if hasattr(args, name):
@@ -915,7 +933,6 @@ if __name__ == "__main__":
                     exm.refine_mask = utils.get_refined_score_mask(exm)
     args.datareader = datareader
     # args.batch_size = 16
-    args.batch_size = 48
     # args.batch_size = 1
     args.num_warmup_steps = 1000
     args.num_warmup_steps = 722  # 2epo
