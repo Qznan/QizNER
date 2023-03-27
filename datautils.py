@@ -1159,14 +1159,37 @@ class NerExample:
         ent_span_dct: {(0,2):1, (4,7):1, ...}
         """
         self.char_lst = char_lst  # must
+        self.token_deli = token_deli  # 中文是'' 英文是' '
+        self.text = self.token_deli.join(self.char_lst)
         if isinstance(ent_dct, defaultdict): ent_dct = dict(ent_dct)
         self.ent_dct = ent_dct  # must
         if dedup:
             self.duplicate_ent_dct()  # 去除重复
+        self.clean_if_invalid_ent()  # 去除可能的非法实体
         self.ent_span_dct = ent_span_dct  # option
         self.tag_lst = tag_lst  # option
-        self.token_deli = token_deli  # 中文是'' 英文是' '
-        self.text = self.token_deli.join(self.char_lst)
+
+    def clean_invalid_ent(self):
+        """ remove ent which is '' start=end or start>end"""
+        for ent, pos_lst in self.ent_dct.items():
+            self.ent_dct[ent] = [pos for pos in pos_lst if pos[0] < pos[1]]
+        empty_ent = [ent for ent, pos_lst in self.ent_dct.items() if not pos_lst]
+        for ent in empty_ent:
+            assert self.ent_dct.pop(ent) == []
+
+    def check_valid_ent(self):
+        for ent, pos_lst in self.ent_dct.items():
+            for s, e, *_ in pos_lst:
+                if not s < e:
+                    # print(pos_lst)
+                    # print(f'found invalid ent {self}')
+                    return False
+        return True
+
+    def clean_if_invalid_ent(self):
+        if not self.check_valid_ent():
+            self.clean_invalid_ent()
+            print(f'clean invalid ent, after clean: {self}')
 
     def update_text(self):
         if hasattr(self, 'text'):
@@ -1236,10 +1259,9 @@ class NerExample:
 
             ent_lst_.append([ent_type, start, end + 1] + other)
 
-        ent_dct_ = defaultdict(list)
+        self.ent_dct = {}
         for ent_type, start, end, *other in ent_lst_:
-            ent_dct_[ent_type].append([start, end] + other)
-        self.ent_dct = dict(ent_dct_)
+            self.ent_dct.setdefault(ent_type, []).append([start, end] + other)
         self.update_text()
         self.update(anchor='ent_dct')
 
@@ -1334,7 +1356,7 @@ class NerExample:
                 break
             else:
                 exm = rear_exm
-
+        [exm.clean_if_invalid_ent for exm in segmented_exm_lst]
         return segmented_exm_lst
 
     def remove_ent_by_type(self, ent_type_lst, input_keep=False):
@@ -1563,8 +1585,11 @@ class NerExample:
     @staticmethod
     def assign_ent_to_tag_lst(tag_lst, ent_type, start, end, schema='BIO'):
         assert schema == 'BIO'  # TODO
-        assert start >= 0 and end <= len(tag_lst) and end > start, f'start:{start} end:{end} tag_lst:{tag_lst}'
-        tag_lst[start:end] = [f'B-{ent_type}'] + [f'I-{ent_type}'] * (end - start - 1)
+        if start < end and start >= 0 and end <= len(tag_lst):
+            tag_lst[start:end] = [f'B-{ent_type}'] + [f'I-{ent_type}'] * (end - start - 1)
+        else:
+            print(f'found invalid start and end when `assign_ent_to_tag_lst` '
+                  f'so tag_lst is not change! start:{start} end:{end} tag_lst:{tag_lst}')
 
     @staticmethod
     def to_tag_lst(char_lst, ent_dct, schema='BIO', combine_stragety='prev'):
@@ -1587,6 +1612,10 @@ class NerExample:
         for ent_type, start, end in ent_lst:
             if start >= prev_end:  # 引文end是闭区间 所以可以等于
                 # 标注该entity
+                if start >= end:
+                    print(char_lst)
+                    print(ent_dct)
+                    ipdb.set_trace()
                 NerExample.assign_ent_to_tag_lst(tag_lst, ent_type, start, end, schema=schema)
                 # tag_lst[start:end] = [f'B-{ent_type}'] + [f'I-{ent_type}'] * (end - start - 1)
                 # tag_lst[start:end] = ['O'] * len(end - start)
@@ -1690,11 +1719,6 @@ class NerExample:
                     pos_set.add((pos[0], pos[1]))
             ent_dct[ent_type] = dupli_pos_lst
         self.ent_dct = ent_dct
-
-    def remove_invalid_ent_dct(self):
-        """去掉start和end不满足end>start的ent"""
-        for ent_type, pos_lst in self.ent_dct.items():
-            self.ent_dct[ent_type] = [pos for pos in pos_lst if pos[1] > pos[0]]  # end > start
 
     @staticmethod
     def ent_dct_to_ent_span_dct(ent_dct):
@@ -1889,6 +1913,8 @@ class NerExample:
                         char_lst = obj['text'].split(token_deli)
                 else:
                     raise Exception('there should exist either of char_lst or text field')
+            if len(char_lst) == 0:
+                continue
 
             ent_dct = obj['ent_dct']
             for k, pos_lst in ent_dct.items():
@@ -1897,7 +1923,7 @@ class NerExample:
                     if isinstance(pos[1], str):  # 精简模式 start, mention
                         mention = pos[1]
                         end = start
-                        while len(token_deli.join(char_lst[start: end])) < len(mention):
+                        while len(token_deli.join(char_lst[start: end])) < len(mention) and end < len(char_lst):
                             # while token_deli.join(char_lst[start: end]) != mention:  # 当mention有误时会死循环
                             end += 1
                         # end = start + len(mention)  # 仅对于字符级样本有用
@@ -1906,17 +1932,17 @@ class NerExample:
                         pos.pop(-1)
 
             exm = NerExample(char_lst=char_lst, ent_dct=ent_dct, token_deli=token_deli, dedup=dedup)
-            exm.remove_invalid_ent_dct()
             exm.update(anchor='ent_dct', dedup=dedup)
 
             if 'pred_ent_dct' in obj:
                 pred_ent_dct = obj['pred_ent_dct']
                 for k, pos_lst in pred_ent_dct.items():
                     for pos in pos_lst:
+                        start = pos[0]
                         if isinstance(pos[1], str):  # 精简模式 start, mention
                             mention = pos[1]
                             end = start
-                            while len(token_deli.join(char_lst[start: end])) < len(mention):
+                            while len(token_deli.join(char_lst[start: end])) < len(mention) and end < len(char_lst):
                                 end += 1
                             # end = start + len(mention)  # 仅对于字符级样本有用
                             pos[1] = end
@@ -2515,6 +2541,14 @@ class NerExample:
             list2file(out, ent_anal_out_file)
 
     @staticmethod
+    def get_ents_set(exm_lst) -> List:
+        ents_set = set()
+        for exm in exm_lst:
+            for ent in exm.ent_dct:
+                ents_set.add(ent)
+        return sorted(ents_set)
+
+    @staticmethod
     def get_from_cluener_format_file(cluener_format_file):
         obj_lst = load_jsonl(cluener_format_file)
         exm_lst = []
@@ -2656,6 +2690,13 @@ class NerExample:
             Text:' 备受“瞩目”的《迷失》CHINA IN SURPRISE DEFEAT,玩家的魔兽' -> words:[备|受|“|瞩|目|”|的|《|迷|失|》|CHINA|IN|SURPRISE|DEFEAT|,|玩|家|的|魔|兽]  # will strip ' '
             -> subwords:[备|受|“|瞩|目|”|的|《|迷|失|》|CH|##IN|##A|IN|SU|##R|##PR|##ISE|DE|##F|##EA|##T|,|玩|家|的|魔|兽]
             ret: add self.char_lst,sub_tokensm,ori_indexes and update ent_pos
+
+            shortcoming:
+            0.原文基于text的坐标需要变成基于token的坐标，可能失精，参考2.
+            1.中文中的空格会被丢掉。例如：
+            ‘9.86 280 0.9699%’ -> char_lst[9,.,86,280,0,.,9699] -> subtoken[9,.,86,280,0,.,969,##9]
+            9.86 280 0.9699% 跟 9.862800.9699 输入模型是一样的，对模型没区别
+            2. 假设 '280000' ent是 '280', 280000 -> char_list [280000] -> subtoken[280,##000] 要注意转换为char_lst坐标ent的end时要+1，改变实体为280000
         """
         raw_text = ''.join(self.char_lst)  # ' 备受“瞩目”的《迷失》CHINA IN SURPRISE DEFEAT,玩家的魔兽'
         o = bert_tokenizer.encode_plus(raw_text, return_offsets_mapping=True, add_special_tokens=False)
@@ -2715,9 +2756,12 @@ class NerExample:
                     new_end = char_to_raw_lst_indexes[end - 1] + 1
                 else:
                     new_end = char_to_raw_lst_indexes[end]
+                if new_end == new_start:  # 上面 shortcoming2的情况, 实体跟前面的或者后面的组合成token了 要且只需特殊处理下后的情况
+                    new_end = new_start + 1
                 v_lst[idx][0] = new_start
                 v_lst[idx][1] = new_end
         self.update_text()
+        self.clean_if_invalid_ent()
 
     @staticmethod
     def _tokenized2nested(tokenized_raw_text: List[str], tokenizer, max_len: int = 5):
