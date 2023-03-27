@@ -8,7 +8,7 @@ import math, time, os
 from typing import *
 import torch
 import torch.nn as nn
-from transformers import BertConfig, BertModel, RobertaModel, get_cosine_schedule_with_warmup, get_constant_schedule_with_warmup, get_linear_schedule_with_warmup
+from transformers import BertConfig, BertModel, RobertaModel, AutoModel, get_cosine_schedule_with_warmup, get_constant_schedule_with_warmup, get_linear_schedule_with_warmup, AutoConfig
 import ipdb
 from datautils import Meaner, CUDA_Recorder, Time_Recorder
 import logging
@@ -319,17 +319,20 @@ class Bert_Span(nn.Module):
         self.id2ent = args.datareader.id2ent
         self.args = args
 
-        self.bert_conf = BertConfig.from_pretrained(args.bert_model_dir)
+        self.bert_conf = AutoConfig.from_pretrained(args.bert_model_dir)
 
-        self.use_bilstm = True
+        self.use_bilstm = False
 
         if args.pretrain_mode == 'fine_tuning':
-            if 'roberta' in args.bert_model_dir.lower():
-                self.bert_layer = RobertaModel.from_pretrained(args.bert_model_dir,
-                                                               hidden_dropout_prob=0.2, attention_probs_dropout_prob=0.2
-                                                               )
+            # self.bert_layer = BertModel.from_pretrained(args.bert_model_dir)
+            # bert_model_dir = 'hfl/chinese-bert-wwm-ext'
+            # bert_model_dir = 'bert-base-chinese'
+            if args.bert_model_dir.endswith('roberta-base'):
+                self.bert_layer = AutoModel.from_pretrained(args.bert_model_dir,
+                                                            hidden_dropout_prob=0.2, attention_probs_dropout_prob=0.2
+                                                            )
             else:
-                self.bert_layer = BertModel.from_pretrained(args.bert_model_dir)
+                self.bert_layer = AutoModel.from_pretrained(args.bert_model_dir)
             if self.use_bilstm:
                 self.bilstm_layer = nn.LSTM(
                     input_size=self.bert_conf.hidden_size,  # 768base 1024large
@@ -481,10 +484,10 @@ class Bert_Span(nn.Module):
             seq_len_lst = seq_len.tolist()
 
             # ipdb.set_trace()
-            bert_hiddens = bert_outputs.hidden_states[-4:]  # 倒数四层
-            bert_out = sum(bert_hiddens) / len(bert_hiddens)  # average
+            # bert_hiddens = bert_outputs.hidden_states[-4:]  # 倒数四层
+            # bert_out = sum(bert_hiddens) / len(bert_hiddens)  # average
 
-            # bert_out = bert_outputs.last_hidden_state  #
+            bert_out = bert_outputs.last_hidden_state  #
 
             # 去除bert_output[CLS]和[SEP] # 使用group_aggregating时可以简单只去头尾，漏的[SEP]会自动乘0隐去
             # bert_out_lst = [t for t in bert_out]  # split along batch
@@ -983,18 +986,18 @@ class Bert_Seq(nn.Module):
         self.id2tag = args.datareader.id2tag
         self.args = args
 
-        self.bert_conf = BertConfig.from_pretrained(args.bert_model_dir)
+        self.bert_conf = AutoConfig.from_pretrained(args.bert_model_dir)
+        # self.bert_conf = BertConfig.from_pretrained(args.bert_model_dir)
 
         if args.pretrain_mode == 'fine_tuning':
-            # self.bert_layer = BertModel.from_pretrained(args.bert_model_dir)
             # bert_model_dir = 'hfl/chinese-bert-wwm-ext'
             # bert_model_dir = 'bert-base-chinese'
-            if 'roberta' in args.bert_model_dir:
-                self.bert_layer = RobertaModel.from_pretrained(args.bert_model_dir,
-                                                               hidden_dropout_prob=0.2, attention_probs_dropout_prob=0.2
-                                                               )
+            if args.bert_model_dir.endswith('roberta-base'):
+                self.bert_layer = AutoModel.from_pretrained(args.bert_model_dir,
+                                                            hidden_dropout_prob=0.2, attention_probs_dropout_prob=0.2
+                                                            )
             else:
-                self.bert_layer = BertModel.from_pretrained(args.bert_model_dir)
+                self.bert_layer = AutoModel.from_pretrained(args.bert_model_dir)
             self.group_aggregating = SequenceGroupAggregating(mode='mean')
 
         if args.pretrain_mode == 'feature_based':
@@ -1032,7 +1035,7 @@ class Bert_Seq(nn.Module):
                 {'params': p4},
             ]
             self.check_grouped_params(self.grouped_params)
-        self.grad_clip = 5.0  # few other
+        self.grad_clip = 5.0
         self.total_norm = 0.
 
     def check_grouped_params(self, grouped_params):
