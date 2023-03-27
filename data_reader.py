@@ -9,6 +9,7 @@ import torch
 import numpy as np
 from pathlib import Path
 from transformers import BertTokenizer, AutoTokenizer, RobertaTokenizer
+import transformers
 # import datautils as utils
 from datautils import NerExample, Any2Id
 import time, copy
@@ -406,7 +407,7 @@ class NerDataReader:
             with ipdb.launch_ipdb_on_exception():
                 segmented_exm_lst = NerExample.segment_exm(exm, max_size=self.max_len - 2, prefix_context_len=prefix_context_len)  # consider [CLS] [SEP]
             if len(segmented_exm_lst) > 1:
-                print(f'[index:{i}] find one exception example (len:{len(exm.char_lst)} '
+                print(f'[index:{i}] find one overlength example (len:{len(exm.char_lst)} '
                       f'subtoknes len:{len(exm.sub_tokens) if hasattr(exm, "sub_tokens") else None}) '
                       f'due to subtokens longer than max_len({self.max_len}), '
                       f'segment to {len(segmented_exm_lst)} exms')
