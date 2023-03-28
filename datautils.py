@@ -2120,6 +2120,87 @@ class NerExample:
 
         return dict(pred_ent_dct)
 
+    @staticmethod
+    def negative_sample(exm_lst: List, ratio=1.):
+        positive_ids, negative_ids = set(), set()
+        for i, exm in enumerate(exm_lst):
+            if exm.is_neg():
+                negative_ids.add(i)
+            else:
+                positive_ids.add(i)
+        num_pos = len(positive_ids)
+        num_neg = len(negative_ids)
+        num_sampled_neg = int(num_pos * ratio)
+        if num_sampled_neg < num_neg:
+            sampled_negative_ids = set(random.sample(negative_ids, num_sampled_neg))
+        else:
+            sampled_negative_ids = negative_ids
+
+        keep_ids = positive_ids | sampled_negative_ids
+        new_exm_lst = [exm for i, exm in enumerate(exm_lst) if i in keep_ids]
+        print(f'negative sample: num_pos:{num_pos} num_neg:{num_neg} num_neg_sampled:{num_sampled_neg}')
+        print(f'negative sample: total before:{num_pos + num_neg} after:{num_pos + num_sampled_neg}')
+        return new_exm_lst
+
+    @staticmethod
+    def gen_html(exm_lst: List, html_file):
+        exms_html = []
+        for exm in exm_lst:
+            tmp_char_lst = exm.char_lst[:]
+            for ent, pos_lst in exm.ent_dct.items():
+                for s, e, *_ in pos_lst:
+                    tmp_char_lst[s] = f'<span style="color:blue" title="{ent}">||{tmp_char_lst[s]}'
+                    tmp_char_lst[e - 1] = f'{tmp_char_lst[e - 1]}||</span>'
+            exm_html = f'<tr><td>{" ".join(tmp_char_lst)}</td></tr>'
+            exms_html.append(exm_html)
+
+            if hasattr(exm, 'pred_ent_dct'):
+                tmp_char_lst = exm.char_lst[:]
+                for ent, pos_lst in exm.pred_ent_dct.items():
+                    for s, e, *_ in pos_lst:
+                        tmp_char_lst[s] = f'<span style="color:red" title="{ent}">||{tmp_char_lst[s]}'
+                        tmp_char_lst[e - 1] = f'{tmp_char_lst[e - 1]}||</span>'
+                exm_html = f'<tr><td>{" ".join(tmp_char_lst)}</td></tr>'
+                exms_html.append(exm_html)
+
+        exms_html = '\n'.join(exms_html)
+        html = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+<style>
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0 auto;
+  font-family: Arial, sans-serif;
+  color: #333;
+  font-size: 15px;
+}
+th,td {
+  padding: 10px;
+  text-align: left;
+  border: 1px solid #ccc;
+}
+th {
+  background-color: #f2f2f2;
+  font-weight: bold;
+}
+tr:nth-child(even) {
+  background-color: #f2f2f2;
+}
+</style>
+</head>
+<body>
+<table><tbody>
+""" + exms_html + r"""
+</tbody></table>
+</body>
+</html>
+"""
+        list2file([html], out_file=html_file)
+
     def get_conj_info(self, conj_scores: List, decimal=None):
         # conj_res: tok1 conj_score1 tok2 conj_score2...
         # char_lst = self.ori_char_lst if hasattr(self, 'ori_char_lst') else self.char_lst  # TODO
