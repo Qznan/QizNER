@@ -921,10 +921,15 @@ if __name__ == "__main__":
         ent_lst = utils.NerExample.get_ents_set(exm_lst)
         if args.span_loss_type == 'softmax': ent_lst = ['O'] + ent_lst
         datareader = NerDataReader(args.bert_model_dir, 512, ent_file_or_ent_lst=ent_lst, loss_type=args.span_loss_type, args=args)
-        args.train_dataset = datareader.build_dataset(exm_lst[:-500], lang='ZHENG', arch=args.arch)
-        args.test_dataset = datareader.build_dataset(exm_lst[-500:], lang='ZHENG', arch=args.arch)
-        # args.train_dataset = datareader.build_dataset(exm_lst[:500], lang='ZHENG', arch=args.arch)
-        # args.test_dataset = datareader.build_dataset(exm_lst[500:600], lang='ZHENG', arch=args.arch)
+        # args.train_dataset = datareader.build_dataset(exm_lst[:-500], lang='ZHENG', arch=args.arch)
+        # args.test_dataset = datareader.build_dataset(exm_lst[-500:], lang='ZHENG', arch=args.arch)
+
+        args.train_dataset = datareader.build_dataset(exm_lst[:-500], lang='ZHENG', arch=args.arch,
+                                                      max_len=64, prefix_context_len=16, neg_ratio=1., cached_file='tmp_test/long_text_train.jsonl')
+        args.test_dataset = datareader.build_dataset(exm_lst[-500:], lang='ZHENG', arch=args.arch,
+                                                     max_len=64, prefix_context_len=16, cached_file='tmp_test/long_text_test.jsonl')
+
+
 
     if args.use_refine_mask:
         for name in ['train_dataset', 'dev_dataset', 'test_dataset']:

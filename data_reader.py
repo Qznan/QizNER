@@ -12,9 +12,8 @@ from transformers import BertTokenizer, AutoTokenizer, RobertaTokenizer
 import transformers
 # import datautils as utils
 from datautils import NerExample, Any2Id
-import time, copy
+import time, copy, os
 import ipdb
-from types import MethodType
 
 try:
     from prefetch_generator import BackgroundGenerator  # prefetch-generator
@@ -34,7 +33,7 @@ def is_whitespace(char):
 
 
 class CharTokenizer(AutoTokenizer):  # 为了适配robert-large 的vocab.json
-# class CharTokenizer(BertTokenizer):
+    # class CharTokenizer(BertTokenizer):
     def __init__(self, *args, **kwargs):
         super(CharTokenizer, self).__init__(*args, **kwargs)
         self.fast_get_vocab = self.vocab
@@ -381,7 +380,31 @@ class NerDataReader:
                 'seq': seq_batcher,
                 }.get(arch, None)
 
-    def build_dataset(self, data_source, lang='ENG', arch='span', loss_type=None, prefix_context_len=0):
+    def build_dataset(self, data_source, lang='ENG', arch='span', loss_type=None,
+                      max_len=None, prefix_context_len=0, cached_file=None, neg_ratio=None):
+
+        if loss_type is None:
+            loss_type = self.loss_type
+
+        if max_len is None:
+            max_len = self.max_len - 2  # already consider [CLS] [SEP]
+        else:
+            max_len = min(self.max_len - 2, max_len)
+
+        if cached_file is not None:  # e.g., train_exm.jsonl
+            split_cached_file = cached_file.replace('.jsonl', '_split.jsonl')
+            split_sampled_cached_file = cached_file.replace('.jsonl', '_split_sampled.jsonl')
+            external_attrs = ['char_lst']
+            if lang in ['ENG', 'ZHENG']:
+                external_attrs.extend(['sub_tokens', 'ori_indexes'])
+
+        if cached_file and (os.path.exists(split_cached_file) or os.path.exists(split_sampled_cached_file)):
+            exm_file_to_use = split_sampled_cached_file if os.path.exists(split_sampled_cached_file) else split_cached_file
+            exm_lst = NerExample.load_from_jsonl(exm_file_to_use, token_deli='', external_attrs=external_attrs)
+            return LazyDataset(exm_lst, self.post_process,
+                               post_process_args=dict(lang=lang, train=True, arch=arch, loss_type=loss_type)
+                               )
+
         """构造数据集"""
         if isinstance(data_source, (str, Path)):
             exm_lst = NerExample.load_from_jsonl(data_source)
@@ -405,11 +428,11 @@ class NerDataReader:
         new_exm_lst = []
         for i, exm in enumerate(exm_lst):
             with ipdb.launch_ipdb_on_exception():
-                segmented_exm_lst = NerExample.segment_exm(exm, max_size=self.max_len - 2, prefix_context_len=prefix_context_len)  # consider [CLS] [SEP]
+                segmented_exm_lst = NerExample.segment_exm(exm, max_size=max_len, prefix_context_len=prefix_context_len)  # already consider [CLS] [SEP]
             if len(segmented_exm_lst) > 1:
                 print(f'[index:{i}] find one overlength example (len:{len(exm.char_lst)} '
                       f'subtoknes len:{len(exm.sub_tokens) if hasattr(exm, "sub_tokens") else None}) '
-                      f'due to subtokens longer than max_len({self.max_len}), '
+                      f'due to subtokens longer than max_len({max_len}), '
                       f'segment to {len(segmented_exm_lst)} exms')
                 # ipdb.set_trace()
                 segmented_nums += 1
@@ -419,9 +442,13 @@ class NerDataReader:
             print(f'total segmented nums: {segmented_nums} num_add_due_to_segment: {num_add_due_to_segment}')
 
         exm_lst = new_exm_lst
+        if cached_file:
+            NerExample.save_to_jsonl(exm_lst, split_cached_file, external_attrs=external_attrs)
 
-        if loss_type is None:
-            loss_type = self.loss_type
+        if neg_ratio is not None:
+            exm_lst = NerExample.negative_sample(exm_lst, neg_ratio)
+            NerExample.save_to_jsonl(exm_lst, split_sampled_cached_file, external_attrs=external_attrs)
+
         return LazyDataset(exm_lst, self.post_process,
                            post_process_args=dict(lang=lang, train=True, arch=arch, loss_type=loss_type)
                            )
