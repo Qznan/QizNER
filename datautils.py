@@ -1773,6 +1773,38 @@ class NerExample:
         self.ent_dct = ent_dct
         self.update(anchor='ent_dct')
 
+    def aggre_ent_type(self, ent2ent_map: Union[dict, Callable], other_as=None):
+        for attr in ['ent_dct', 'pred_ent_dct']:
+            if hasattr(self, attr):
+                new_ent_dct = {}
+                for ent, pos_lst in getattr(self, attr).items():
+                    if isinstance(ent2ent_map, dict):
+                        ent2ent_map = {str(k): str(v) for k, v in ent2ent_map.items()}  # ent_type 必须是字符类型
+                        if ent in ent2ent_map:
+                            new_ent_dct.setdefault(ent2ent_map[ent], []).extend(pos_lst)
+                        else:
+                            if other_as is not None:
+                                new_ent_dct.setdefault(other_as, []).extend(pos_lst)
+                            else:
+                                new_ent_dct.setdefault(ent, []).extend(pos_lst)
+                    elif hasattr(ent2ent_map, '__call__'):
+                        new_ent_dct[ent2ent_map(ent)] = pos_lst
+                    else:
+                        raise NotImplementedError
+
+                # 去重start和end一样的项
+                for ent, pos_lst in new_ent_dct.items():
+                    new_pos_lst = []
+                    pos_set = set()
+                    for pos in pos_lst:
+                        s, e = pos[0], pos[1]
+                        if (s, e) not in pos_set:
+                            pos_set.add((s, e))
+                            new_pos_lst.append(pos)
+                    new_ent_dct[ent] = new_pos_lst
+                setattr(self, attr, new_ent_dct)
+
+
     @staticmethod
     def extract_entity_by_tags(tag_lst, schema='IOB'):
         """ 根据tags获得有意义的entity并返回对应start-end索引 end开区间
