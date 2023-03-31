@@ -324,7 +324,6 @@ class Bert_Span(nn.Module):
         self.use_bilstm = False
 
         if args.pretrain_mode == 'fine_tuning':
-            # self.bert_layer = BertModel.from_pretrained(args.bert_model_dir)
             # bert_model_dir = 'hfl/chinese-bert-wwm-ext'
             # bert_model_dir = 'bert-base-chinese'
             if args.bert_model_dir.endswith('roberta-base'):
@@ -364,8 +363,9 @@ class Bert_Span(nn.Module):
         # self.tag_size = len(self.tag2id)
         self.ent_size = len(self.ent2id)
         # self.dropout_layer = nn.Dropout(p=self.dropout_rate)  # TODO
-        self.dropout_layer1 = nn.Dropout(p=0.5)
+        self.dropout_layer = nn.Dropout(p=args.dropout_rate)
         self.dropout_layer2 = nn.Dropout(p=0.2)
+        self.dropout_layer5 = nn.Dropout(p=0.5)
 
         self.start_size = self.end_size = self.link_size = 50  # TODO
 
@@ -466,7 +466,7 @@ class Bert_Span(nn.Module):
             num_warmup_steps = ratio * num_training_steps
         # print(num_training_instancs, epo, ratio, num_step_per_epo, num_training_steps)
         self.lrs = get_cosine_schedule_with_warmup(self.opt, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps)
-        self.lrs = get_linear_schedule_with_warmup(self.opt, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps)
+        # self.lrs = get_linear_schedule_with_warmup(self.opt, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps)
         # self.lrs = get_constant_schedule_with_warmup(self.opt, num_warmup_steps=num_warmup_steps)
 
     def context_encoder(self, inputs_dct):
@@ -481,15 +481,15 @@ class Bert_Span(nn.Module):
                                            output_hidden_states=True,
                                            )
 
-            seq_len_lst = seq_len.tolist()
 
             # ipdb.set_trace()
             # bert_hiddens = bert_outputs.hidden_states[-4:]  # 倒数四层
             # bert_out = sum(bert_hiddens) / len(bert_hiddens)  # average
 
-            bert_out = bert_outputs.last_hidden_state  #
+            bert_out = bert_outputs.last_hidden_state  # 取最后一层
 
-            # 去除bert_output[CLS]和[SEP] # 使用group_aggregating时可以简单只去头尾，漏的[SEP]会自动乘0隐去
+            # 去除bert_output[CLS]和[SEP] # 使用group_aggregating时可以简单只去头尾，漏的[SEP]会自动乘0隐去\
+            # seq_len_lst = seq_len.tolist()
             # bert_out_lst = [t for t in bert_out]  # split along batch
             # for i, t in enumerate(bert_out_lst):  # iter along batch
             #     # tensor [len, hid]
@@ -511,10 +511,8 @@ class Bert_Span(nn.Module):
                 bert_out = self.group_aggregating(bert_out, ori_indexes, agg_mode='mean')
                 # print(bert_out.shape)
 
-            # bert_out = self.dropout_layer(bert_out)  # don't forget
-            bert_out = self.dropout_layer1(bert_out)  # don't forget
-
             if self.use_bilstm:
+                bert_out = self.dropout_layer5(bert_out)  # don't forget
                 pack_embed = torch.nn.utils.rnn.pack_padded_sequence(bert_out, ori_seq_len.cpu(), batch_first=True, enforce_sorted=False)
                 pack_out, _ = self.bilstm_layer(pack_embed)
                 bert_out, _ = torch.nn.utils.rnn.pad_packed_sequence(pack_out, batch_first=True)  # [bat,len,hid]
@@ -551,7 +549,7 @@ class Bert_Span(nn.Module):
         return link_dot_prod_scores  # b,l-1
         # return torch.relu(link_dot_prod_scores)  # b,l-1
 
-    def calc_loss(self, span_ner_pred_lst, span_ner_tgt_lst, link_valid_span_lst=None):
+    def calc_loss(self, span_ner_pred_lst, span_ner_tgt_lst, link_valid_span_lst=None, neg_sample_ratio=None):
         if self.loss_type == 'softmax':
             # pred span_ner_pred_lst [*,ent]
             # label span_ner_tgt_lst [*]
@@ -559,6 +557,11 @@ class Bert_Span(nn.Module):
             span_loss = torch.sum(span_loss)
 
         if self.loss_type == 'sigmoid':
+            if neg_sample_ratio:  # e.g. neg_sample=0.2
+                neg_mask = (span_ner_tgt_lst.sum(-1) == 0).int()  # [*] 负样本1 正样本0
+                rnd = torch.rand(span_ner_tgt_lst.shape[0], device=span_ner_tgt_lst.device) < neg_sample_ratio
+                rnd = rnd.int()  # 0.2的概率是1 其余为0
+                neg_sample_loss_mask = (1 - neg_mask) + (neg_mask * rnd)
             # pred span_ner_pred_lst [*,ent]
             # label span_ner_tgt_lst [*,ent]
             span_loss = self.loss_layer(span_ner_pred_lst, span_ner_tgt_lst.float())  # [*,ent] [*,ent](target已是onehot) -> [*,ent]
@@ -568,6 +571,8 @@ class Bert_Span(nn.Module):
                 span_loss = span_loss * link_valid_span_lst.unsqueeze(-1)
 
             span_loss = torch.sum(span_loss, -1)  # [*]
+            if neg_sample_ratio:
+                span_loss = span_loss * neg_sample_loss_mask.float()
             # span_loss = torch.mean(span_loss)  # 这样loss是0.00x 太小优化不了
             span_loss = torch.sum(span_loss)
         return span_loss
