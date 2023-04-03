@@ -1022,6 +1022,10 @@ class Bert_Seq(nn.Module):
         self.dropout_layer = nn.Dropout(p=self.dropout_rate)
         self.hidden2tag_layer = nn.Linear(self.bert_conf.hidden_size, self.tag_size)
         self.crf_layer = CRF(self.tag_size, batch_first=True)
+        self.use_partial_crf = False
+        if self.use_partial_crf:
+            from crfs import PartialCRF
+            self.partial_crf_layer = PartialCRF(num_tags=self.tag_size)
 
         # print(*[n for n, p in self.named_parameters()], sep='\n')
         count_params(self)
@@ -1126,12 +1130,21 @@ class Bert_Seq(nn.Module):
 
         emission = self.hidden2tag_layer(bert_out)  # [bat,len,tag]
         mask = sequence_mask(seq_len, dtype=torch.uint8)
-        if train:
-            crf_log_likelihood = self.crf_layer(emission, tags_ids, mask)
-            crf_loss = -crf_log_likelihood
+        if self.use_partial_crf:
+            partial_tags_ids = torch.masked_fill(tags_ids, tags_ids == self.tag2id['O'], -1)  # -1是partial_crf中预设的未知标签
+            if train:
+                crf_loss = self.partial_crf_layer(emission, partial_tags_ids, mask)
+            else:
+                crf_loss = None
+            decode_ids = self.partial_crf_layer.viterbi_decode(emission, mask)  # bsz of tag_list
+
         else:
-            crf_loss = None
-        decode_ids = self.crf_layer.decode(emission, mask)
+            if train:
+                crf_log_likelihood = self.crf_layer(emission, tags_ids, mask)
+                crf_loss = -crf_log_likelihood
+            else:
+                crf_loss = None
+            decode_ids = self.crf_layer.decode(emission, mask)
 
         return crf_loss, emission, decode_ids
 
@@ -1141,20 +1154,24 @@ class Bert_Seq(nn.Module):
 
         emission = self.hidden2tag_layer(bert_out)  # [bat,len,tag]
         mask = sequence_mask(seq_len, dtype=torch.uint8)
-        decode_ids = self.crf_layer.decode(emission, mask)
+        if self.use_partial_crf:
+            decode_ids = self.partial_crf_layer.viterbi_decode(emission, mask)  # bsz of tag_list
+        else:
+            decode_ids = self.crf_layer.decode(emission, mask)
 
         return emission, decode_ids
 
 
 def sequence_mask(lengths, maxlen=None, dtype=torch.bool):
     """ mask 句子非pad部分为 1"""
+    # lengths [bsz]
     if maxlen is None:
         maxlen = lengths.max()
-    row_vector = torch.arange(0, maxlen, 1).cuda() if lengths.is_cuda else torch.arange(0, maxlen, 1)
-    matrix = torch.unsqueeze(lengths, dim=-1)
-    mask = row_vector < matrix
-    mask.type(dtype)
-    return mask
+    row_vector = torch.arange(0, maxlen, 1, device=lengths.device)  # [len]
+    matrix = torch.unsqueeze(lengths, dim=-1)  # [bsz,1]
+    mask = row_vector < matrix  # [bsz,len]  auto: [1,len] < [bsz,1]
+    mask.type(dtype)  # 类型转换
+    return mask  # [bsz,len]
 
 
 class SequenceGroupAggregating(torch.nn.Module):
