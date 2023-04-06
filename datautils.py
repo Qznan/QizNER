@@ -2151,7 +2151,157 @@ class NerExample:
         #     pred_ent_dct[id2ent[pred_ent_id]].append([start, end, pred_ent_prob])
 
         return dict(pred_ent_dct)
+    @staticmethod
+    def draw_CM(data_file,save_cm_pic="CM.png"):
 
+        def dct_2_list(dic_o):
+            # 将预测结果中的形式转成list
+            # input:
+            #   dic_o :{“实体类型1”：[[start1,text1],[start2,text2]]}
+            # return:
+            #   list_new [[start1,end1,type1],[start2,end2,type2]]
+            list_new = []
+            if len(dic_o) == 0:
+                return []
+            for key, values in dic_o.items():
+                for ent in values:
+                    list_new.append([ent[0], ent[0] + len(ent[1]), key])
+            list_new.sort(key=lambda x: x[0])
+            return list_new
+
+        def compare(list_1, list_2):
+            # 判断ent_list和pre_list的实体类型关系，只把实体边界完全正确的实体放入其中考虑
+            new_list_1 = []
+            new_list_2 = []
+            len_1 = len(list_1)
+            len_2 = len(list_2)
+            if len_1 == 0 or len_2 == 0:
+                return new_list_1, new_list_2
+            pos_1, pos_2 = 0, 0
+            while pos_1 < len_1 and pos_2 < len_2:
+                if list_1[pos_1][0] == list_2[pos_2][0] and list_1[pos_1][1] == list_2[pos_2][1]:
+                    new_list_1.append(list_1[pos_1][2])
+                    new_list_2.append(list_2[pos_2][2])
+                    pos_1 += 1
+                    pos_2 += 1
+                elif list_1[pos_1][0] < list_2[pos_2][0]:
+                    pos_1 += 1
+                elif list_1[pos_1][0] > list_2[pos_2][0]:
+                    pos_2 += 1
+                elif list_1[pos_1][0] == list_2[pos_2][0] and list_1[pos_1][1] < list_2[pos_2][1]:
+                    pos_1 += 1
+                elif list_1[pos_1][0] == list_2[pos_2][0] and list_1[pos_1][1] > list_2[pos_2][1]:
+                    pos_2 += 1
+
+            return new_list_1, new_list_2
+
+        def build_cm(data):
+            y_true = []
+            y_pred = []
+            for exm in data:
+                ent_list = dct_2_list(exm['ent_dct'])
+                pre_ent_list = dct_2_list(exm['pred_ent_dct'])
+                new_list_1, new_list_2 = compare(ent_list, pre_ent_list)
+                y_true.extend(new_list_1)
+                y_pred.extend(new_list_2)
+
+            labels = set()
+            labels.update(y_true)
+            labels.update(y_pred)
+            labels = list(labels)
+            labels.sort()
+
+            C2 = confusion_matrix(y_true, y_pred, labels=labels)
+            return C2, labels
+
+        def visualise_cm(df, save_cm_pic="CM.png"):
+            sns.set()
+            f, ax = plt.subplots()
+            plt.rcParams['font.sans-serif'] = ['SimHei']
+            plt.rcParams["axes.unicode_minus"] = False
+
+            sns.heatmap(df, annot=True, xticklabels=df.columns, fmt='.20g', yticklabels=df.columns)
+
+            ax.set_title('Seaborn Confusion Matrix with labels\n\n')
+            ax.set_xlabel('predict')
+            ax.set_ylabel('true')  #
+            plt.savefig(save_cm_pic)
+
+            plt.show()
+        data = load_jsonl(data_file)
+
+        CM, labels = build_cm(data)
+        df = pd.DataFrame(CM, index=labels, columns=labels)
+        visualise_cm(df, save_cm_pic)
+
+    @staticmethod
+    def count_entity_mention(exm_lst,
+                             entity_to_mention_file_pth=None,
+                             mention_to_entity_file_pth=None,
+                             non_label_threshold = 0
+                             ):
+        #inputs：
+        #   exm_lst,
+        #   entity_to_mention_file_pth 保存每一个实体类型下有什么mention的文件路径
+        #   mention_to_entity_file_pth=None, 保存每一个mention标注了哪些实体类型的文件路径
+        #   non_label_threshold = 0  如果non label没有超过这个阈值，说明漏标情况不严重，不保存这个mention
+        #returns：
+        #   entity_to_mention 每一个实体类型下有什么mention
+        #   new_mention_dct   每一个mention标注了哪些实体类型
+        def json_set_to_list(json_old):
+            new_json = {}
+            for key, values in json_old.items():
+                new_json[key] = list(values)
+            return new_json
+
+        entity_to_mention = defaultdict(set)
+        mention_to_entity = defaultdict(dict)
+        try:
+            exm_lst[0].char_lst
+        except:
+            print("请输入tokenizer之后的char list")
+            exit()
+        total_text = ""
+        for exm in exm_lst:
+            text = exm.text
+            total_text += text
+            char_list = exm.char_lst
+            for ent_type, ent_list in exm.ent_dct.items():
+                for ent_pos in ent_list:
+                    mention = "".join(char_list[ent_pos[0]:ent_pos[1]])
+                    entity_to_mention[ent_type].add(mention)
+                    try:
+                        mention_to_entity[mention][ent_type] += 1
+                    except:
+                        mention_to_entity[mention][ent_type] = 1
+                    # print(ent_type,mention)
+
+        new_mention_dct = {}
+        # 用于同届没有标注mention的数量
+        for mention, entity_dct in mention_to_entity.items():
+            total_cur = total_text.count(mention)
+            tmp = 0
+            for ent_type, num in entity_dct.items():
+                tmp += num
+            remine_label = total_cur - num
+            entity_dct["没有标注"] = remine_label
+
+            new_mention_dct[mention] = entity_dct
+            if remine_label < non_label_threshold:
+                continue
+            else:
+                new_mention_dct[mention] = entity_dct
+
+        entity_to_mention = json_set_to_list(entity_to_mention)
+        if entity_to_mention_file_pth is not None:
+            save_json(entity_to_mention, entity_to_mention_file_pth)
+        # utils.save_json(mention_to_entity, "mention_to_entity.json")
+
+        # 计算non_label
+        if mention_to_entity_file_pth is not None:
+            save_json(new_mention_dct, mention_to_entity_file_pth)
+        return entity_to_mention, new_mention_dct
+    
     @staticmethod
     def negative_sample(exm_lst: List, ratio=1.):
         positive_ids, negative_ids = set(), set()
