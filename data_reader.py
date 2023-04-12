@@ -10,8 +10,9 @@ import numpy as np
 from pathlib import Path
 from transformers import BertTokenizer, AutoTokenizer, RobertaTokenizer
 import transformers
-# import datautils as utils
-from datautils import NerExample, Any2Id
+
+import datautils
+from datautils import NerExample, Any2Id, file2list
 import time, copy, os
 import ipdb
 
@@ -81,6 +82,7 @@ class NerDataReader:
             self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, add_prefix_space=True)  # JAPAN -> "ĠJ", "AP", "AN"
         else:
             self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+        # self.tokenizer.add_special_tokens({'additional_special_tokens': ['[unused20]']})  # 可以在tokenizer的时候不切分该词，如果不是在vocab里面则会新增，id=len(vocab)
         self.char_tokenize_fn = get_char_tokenize_fn(self.tokenizer)  # used to handle ZH
         self.max_len = max_len
         self.sep_token = self.tokenizer.sep_token
@@ -96,8 +98,10 @@ class NerDataReader:
 
         # if is softmax, should add 'O'
         if isinstance(ent_file_or_ent_lst, list):
+            self.ent_lst = ent_file_or_ent_lst
             self.ent2id = Any2Id(exist_dict={e: i for i, e in enumerate(ent_file_or_ent_lst)})
         else:
+            self.ent_lst = file2list(ent_file_or_ent_lst)
             self.ent2id = Any2Id.from_file(ent_file_or_ent_lst, use_line_no=True)
 
         # tag2id = {'[PAD]': 0, 'O': 1}
@@ -118,6 +122,8 @@ class NerDataReader:
         # self.args.pretrain_mode = 'feature_based'
         # self.args.pretrain_mode = 'fine_tuning'
         # self.args.use_refine_mask = False
+
+        self.tag2id_tmp = dict(self.tag2id, **{'未知':-1})
 
     def post_process(self, exm: NerExample, lang='ENG', train=True, arch='seq', loss_type='sigmoid'):
         if not hasattr(exm, 'train_cache'):
@@ -397,19 +403,27 @@ class NerDataReader:
             external_attrs = ['char_lst']
             if lang in ['ENG', 'ZHENG']:
                 external_attrs.extend(['sub_tokens', 'ori_indexes'])
-
-        if cached_file and (os.path.exists(split_cached_file) or os.path.exists(split_sampled_cached_file)):
-            exm_file_to_use = split_sampled_cached_file if os.path.exists(split_sampled_cached_file) else split_cached_file
-            exm_lst = NerExample.load_from_jsonl(exm_file_to_use, token_deli='', external_attrs=external_attrs)
-            return LazyDataset(exm_lst, self.post_process,
-                               post_process_args=dict(lang=lang, train=True, arch=arch, loss_type=loss_type)
-                               )
-
-        """构造数据集"""
-        if isinstance(data_source, (str, Path)):
-            exm_lst = NerExample.load_from_jsonl(data_source)
         else:
-            exm_lst = data_source
+            split_cached_file = None
+            split_sampled_cached_file = None
+
+        if split_cached_file and os.path.exists(split_cached_file):
+            exm_lst = NerExample.load_from_jsonl(split_cached_file, token_deli='', external_attrs=external_attrs)
+            if neg_ratio is None:
+                return LazyDataset(exm_lst, self.post_process,
+                                   post_process_args=dict(lang=lang, train=True, arch=arch, loss_type=loss_type))
+            else:
+                if os.path.exists(split_sampled_cached_file):
+                    exm_lst = NerExample.load_from_jsonl(split_sampled_cached_file, token_deli='', external_attrs=external_attrs)
+                    return LazyDataset(exm_lst, self.post_process,
+                                       post_process_args=dict(lang=lang, train=True, arch=arch, loss_type=loss_type))
+
+        else:
+            """构造数据集"""
+            if isinstance(data_source, (str, Path)):
+                exm_lst = NerExample.load_from_jsonl(data_source, token_deli='', external_attrs=external_attrs)
+            else:
+                exm_lst = data_source
 
         if lang == 'ENG':  # generate sub_tokens and ori_indexes
             for exm in exm_lst:
@@ -442,16 +456,16 @@ class NerDataReader:
             print(f'total segmented nums: {segmented_nums} num_add_due_to_segment: {num_add_due_to_segment}')
 
         exm_lst = new_exm_lst
-        if cached_file:
+        if split_cached_file:
             NerExample.save_to_jsonl(exm_lst, split_cached_file, external_attrs=external_attrs)
 
         if neg_ratio is not None:
             exm_lst = NerExample.negative_sample(exm_lst, neg_ratio)
-            NerExample.save_to_jsonl(exm_lst, split_sampled_cached_file, external_attrs=external_attrs)
+            if split_sampled_cached_file:
+                NerExample.save_to_jsonl(exm_lst, split_sampled_cached_file, external_attrs=external_attrs)
 
         return LazyDataset(exm_lst, self.post_process,
-                           post_process_args=dict(lang=lang, train=True, arch=arch, loss_type=loss_type)
-                           )
+                           post_process_args=dict(lang=lang, train=True, arch=arch, loss_type=loss_type))
 
 
 # class LazyDataset(DataLoaderX):
