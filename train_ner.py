@@ -151,25 +151,52 @@ class Trainer:
         else:
             return self.curr_ckpt_dir / f'best_test_model_{self.best_test_epo}_{self.best_test_step}.ckpt'
 
-    def eval_dev(self, epo):
+    def eval_dev(self, epo, save_best_test_on_best_dev=True):
         dev_f1, dev_ef1, dev_exm_lst, dev_detail_info_str = self.run_epo(epo, mode='dev')
         logger.info(f'dev detail info:\n{dev_detail_info_str}')
         test_f1, test_ef1, test_exm_lst, test_detail_info_str = self.run_epo(epo, mode='test')
         logger.info(f'test detail info:\n{test_detail_info_str}')
-        is_better = False
-        if dev_ef1 > self.best_dev_f1:
-            is_better = True
-            utils.del_if_exists(self.curr_ckpt_dir, pattern='best_dev_model_*_*.ckpt')  # delete old ckpt
-            self.best_dev_epo, self.best_dev_step, self.best_dev_f1, self.test_f1_in_best_dev = epo, self.curr_step, dev_ef1, test_ef1
-            torch.save(self.model.state_dict(), self.curr_ckpt_dir / f'best_dev_model_{self.best_dev_epo}_{self.best_dev_step}.ckpt')
-            utils.del_if_exists(self.curr_ckpt_dir, pattern='dev_*_exm_lst.jsonl')
-            utils.del_if_exists(self.curr_ckpt_dir, pattern='test_*_exm_lst.jsonl')
-            utils.NerExample.save_to_jsonl(dev_exm_lst, self.curr_ckpt_dir / f'dev_{epo}_{self.curr_step}_exm_lst.jsonl', external_attrs=self.saved_exm_extn_attrs)
-            utils.NerExample.save_to_jsonl(test_exm_lst, self.curr_ckpt_dir / f'test_{epo}_{self.curr_step}_exm_lst.jsonl', external_attrs=self.saved_exm_extn_attrs)
-            self.best_dev_detail_info_str = dev_detail_info_str
-            self.best_test_detail_info_str = test_detail_info_str
-        logger.info(f'curr_step:{self.curr_step} best_dev_f1:{self.best_dev_f1} best_dev_epo:{self.best_dev_epo}_{self.best_dev_step} test_f1_in_best_dev:{self.test_f1_in_best_dev}\n')
-        return is_better
+        if save_best_test_on_best_dev:
+            is_better = False
+            if dev_ef1 > self.best_dev_f1:
+                is_better = True
+                utils.del_if_exists(self.curr_ckpt_dir, pattern='best_dev_model_*_*.ckpt')  # delete old ckpt
+                self.best_dev_epo, self.best_dev_step, self.best_dev_f1, self.test_f1_in_best_dev = epo, self.curr_step, dev_ef1, test_ef1
+                torch.save(self.model.state_dict(), self.curr_ckpt_dir / f'best_dev_model_{self.best_dev_epo}_{self.best_dev_step}.ckpt')
+                utils.del_if_exists(self.curr_ckpt_dir, pattern='dev_*_exm_lst.jsonl')
+                utils.del_if_exists(self.curr_ckpt_dir, pattern='test_*_exm_lst.jsonl')
+                utils.NerExample.save_to_jsonl(dev_exm_lst, self.curr_ckpt_dir / f'dev_{epo}_{self.curr_step}_exm_lst.jsonl', external_attrs=self.saved_exm_extn_attrs)
+                utils.NerExample.save_to_jsonl(test_exm_lst, self.curr_ckpt_dir / f'test_{epo}_{self.curr_step}_exm_lst.jsonl', external_attrs=self.saved_exm_extn_attrs)
+                self.best_dev_detail_info_str = dev_detail_info_str
+                self.best_test_detail_info_str = test_detail_info_str
+            logger.info(f'curr_step:{self.curr_step} best_dev_f1:{self.best_dev_f1} best_dev_epo:{self.best_dev_epo}_{self.best_dev_step} test_f1_in_best_dev:{self.test_f1_in_best_dev}\n')
+            return is_better
+        else:  # will save best test ignoring dev, dev is only for shown
+            dev_is_better = False
+            if dev_ef1 > self.best_dev_f1:
+                dev_is_better = True
+                utils.del_if_exists(self.curr_ckpt_dir, pattern='best_dev_model_*_*.ckpt')  # delete old ckpt
+                self.best_dev_epo, self.best_dev_step, self.best_dev_f1, self.test_f1_in_best_dev = epo, self.curr_step, dev_ef1, test_ef1
+                torch.save(self.model.state_dict(), self.curr_ckpt_dir / f'best_dev_model_{self.best_dev_epo}_{self.best_dev_step}.ckpt')
+                utils.del_if_exists(self.curr_ckpt_dir, pattern='dev_*_exm_lst.jsonl')
+                utils.del_if_exists(self.curr_ckpt_dir, pattern='test_in_dev_*_exm_lst.jsonl')
+                utils.NerExample.save_to_jsonl(dev_exm_lst, self.curr_ckpt_dir / f'dev_{epo}_{self.curr_step}_exm_lst.jsonl', external_attrs=self.saved_exm_extn_attrs)
+                utils.NerExample.save_to_jsonl(test_exm_lst, self.curr_ckpt_dir / f'test_in_dev_{epo}_{self.curr_step}_exm_lst.jsonl', external_attrs=self.saved_exm_extn_attrs)
+                self.best_dev_detail_info_str = dev_detail_info_str
+                self.best_test_detail_info_str = test_detail_info_str
+            logger.info(f'curr_step:{self.curr_step} best_dev_f1:{self.best_dev_f1} best_dev_epo:{self.best_dev_epo}_{self.best_dev_step} test_f1_in_best_dev:{self.test_f1_in_best_dev}\n')
+
+            test_is_better = False
+            if test_ef1 > self.best_test_f1:
+                test_is_better = True
+                utils.del_if_exists(self.curr_ckpt_dir, pattern='best_test_model_*_*.ckpt')  # delete old ckpt
+                self.best_test_epo, self.best_test_step, self.best_test_f1 = epo, self.curr_step, test_ef1
+                torch.save(self.model.state_dict(), self.curr_ckpt_dir / f'best_test_model_{self.best_test_epo}_{self.best_test_step}.ckpt')
+                utils.del_if_exists(self.curr_ckpt_dir, pattern='test_*_exm_lst.jsonl')
+                utils.NerExample.save_to_jsonl(test_exm_lst, self.curr_ckpt_dir / f'test_{epo}_{self.curr_step}_exm_lst.jsonl', external_attrs=self.saved_exm_extn_attrs)
+                self.best_test_detail_info_str = test_detail_info_str
+            logger.info(f'curr_step:{self.curr_step} best_test_f1:{self.best_test_f1} best_test_epo:{self.best_test_epo}_{self.best_test_step}\n')
+            return dev_is_better or test_is_better
 
     def eval_test(self, epo):
         test_f1, test_ef1, test_exm_lst, test_detail_info_str = self.run_epo(epo, mode='test')
@@ -384,6 +411,7 @@ class Trainer:
         self.metrics_jsonl.sort(key=lambda e: e['mode'])
         utils.save_jsonl(self.metrics_jsonl, (self.curr_ckpt_dir / 'metrics.jsonl'), verbose=False)
         utils.save_args_to_json_file(args, self.curr_ckpt_dir / 'args.json')
+        utils.list2file(self.args.datareader.ent_lst, self.curr_ckpt_dir / 'ent_lst.txt')
         if args.flat:
             return 0., f, exm_lst, detail_info_str
         else:
@@ -487,6 +515,7 @@ class Trainer:
         self.metrics_jsonl.sort(key=lambda e: e['mode'])
         utils.save_jsonl(self.metrics_jsonl, (self.curr_ckpt_dir / 'metrics.jsonl'), verbose=False)
         utils.save_args_to_json_file(args, self.curr_ckpt_dir / 'args.json')
+        utils.list2file(self.args.datareader.ent_lst, self.curr_ckpt_dir / 'ent_lst.txt')
         return 0, f, exm_lst, detail_info_str
 
     def predict_span(self, dataset):
