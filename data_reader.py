@@ -440,9 +440,11 @@ class NerDataReader:
         segmented_nums = 0
         num_add_due_to_segment = 0
         new_exm_lst = []
+        seg_info = []  # 用以存放句子如何分割 [2,1,2]]
         for i, exm in enumerate(exm_lst):
             with ipdb.launch_ipdb_on_exception():
                 segmented_exm_lst = NerExample.segment_exm(exm, max_size=max_len, prefix_context_len=prefix_context_len)  # already consider [CLS] [SEP]
+            seg_info.append(len(segmented_exm_lst))
             if len(segmented_exm_lst) > 1:
                 print(f'[index:{i}] find one overlength example (len:{len(exm.char_lst)} '
                       f'subtoknes len:{len(exm.sub_tokens) if hasattr(exm, "sub_tokens") else None}) '
@@ -454,7 +456,6 @@ class NerDataReader:
             new_exm_lst.extend(segmented_exm_lst)
         if segmented_nums:
             print(f'total segmented nums: {segmented_nums} num_add_due_to_segment: {num_add_due_to_segment}')
-
         exm_lst = new_exm_lst
         if split_cached_file:
             NerExample.save_to_jsonl(exm_lst, split_cached_file, external_attrs=external_attrs)
@@ -464,18 +465,18 @@ class NerDataReader:
             if split_sampled_cached_file:
                 NerExample.save_to_jsonl(exm_lst, split_sampled_cached_file, external_attrs=external_attrs)
 
-        return LazyDataset(exm_lst, self.post_process,
-                           post_process_args=dict(lang=lang, train=True, arch=arch, loss_type=loss_type))
+        return LazyDataset(exm_lst, self.post_process, post_process_args=dict(lang=lang, train=True, arch=arch, loss_type=loss_type), seg_info=seg_info)
 
 
 # class LazyDataset(DataLoaderX):
 class LazyDataset(torch.utils.data.Dataset):
     """LazyDataset"""
 
-    def __init__(self, instances, post_process_fn, post_process_args):
+    def __init__(self, instances, post_process_fn, post_process_args, seg_info=None):
         self.instances = instances
         self.post_process_fn = post_process_fn
         self.post_process_args = post_process_args
+        self.seg_info = seg_info
 
     def __getitem__(self, idx):
         """Get the instance with index idx"""

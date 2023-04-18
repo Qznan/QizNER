@@ -5,6 +5,9 @@ model: span-level and seq-labeled ner model
 started from 2021/1
 """
 import os, time, sys, argparse, copy, random, subprocess
+
+import datautils
+
 sys.path = ['.'] + sys.path
 import torch
 import numpy as np
@@ -16,7 +19,6 @@ from rich import print
 import datautils as utils
 from modules import Bert_Span, Bert_Seq
 from data_reader import NerDataReader
-
 
 utils.setup_seed(1111, np, torch)
 
@@ -45,8 +47,7 @@ class Trainer:
             if args.use_slr:
                 model_info += f'_SLR_{args.pooling_type}'
         args.info = '_' + args.info if args.info else ''
-        args.curr_ckpt_dir = args.ckpt_dir / f'{time_series}_{model_info}{args.info}'
-        self.curr_ckpt_dir = args.curr_ckpt_dir
+        self.curr_ckpt_dir = args.curr_ckpt_dir = Path('') / args.ckpt_dir / f'{time_series}_{model_info}{args.info}'
         # utils.print_vars(args, maxlen=200)
         logger.info(" ".join(sys.argv))
         logger.info(f'args:\n%s', pprint.pformat(args.__dict__))
@@ -653,7 +654,60 @@ class Trainer:
             f = -1
         # self.args.reporter.append([self.args.link_threshold, f, ef])
 
-    def predict_seq(self, sents):
+    def predict_sents(self, sents):
+        if self.arch == 'span':
+            return self.predict_span_sents(sents)
+        if self.arch == 'seq':
+            return self.predict_seq_sents(sents)
+
+    def predict_span_sents(self, sents):
+        raw_exms = []
+        for sent in sents:
+            exm = utils.NerExample(char_lst=list(sent), ent_dct={}, token_deli='')
+            raw_exms.append(exm)
+        sub_exms  = copy.deepcopy(raw_exms)
+        [exm.process_ZHENG_by_tokenizer(self.args.datareader.tokenizer) for exm in sub_exms]
+
+        dataset = self.args.datareader.build_dataset(sub_exms, max_len=512, lang='ZHENG', arch=args.arch)
+        seg_info = dataset.seg_info
+        data_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=False,
+                                                  collate_fn=args.datareader.get_batcher_fn(gpu=self.use_gpu, arch=self.arch, device=self.device))
+        print(f'infer num: {len(dataset)}')
+        self.infer_num_steps = (len(dataset) - 1) // args.batch_size + 1
+
+        self.model.eval()
+        iterator = tqdm(data_loader, ncols=200) if self.use_tqdm else data_loader
+        for num_steps, inputs in enumerate(iterator, start=1):
+            batch_ner_exm = inputs['batch_ner_exm']
+            batch_seq_len = inputs['ori_seq_len']
+            with torch.no_grad():  # 不计算梯度 更进一步节约内存 与train() eval()无关
+                span_ner_mat_tensor, batch_span_ner_pred_lst, norm_link_scores = self.model.predict(inputs)
+            batch_span_lst_len = [(l + 1) * l // 2 for l in batch_seq_len.tolist()]
+            batch_span_ner_pred_lst = utils.split_list(batch_span_ner_pred_lst.cpu().detach().numpy(), batch_span_lst_len)
+            for exm, length, span_ner_pred_lst in zip(batch_ner_exm, batch_seq_len, batch_span_ner_pred_lst):
+                if args.span_loss_type == 'softmax':
+                    negative_set = {0}
+                    exm.pred_ent_dct = utils.NerExample.from_span_level_ner_tgt_lst(span_ner_pred_lst, length, self.args.datareader.id2ent, negative_set=negative_set)  # softmax
+                if args.span_loss_type == 'sigmoid':
+                    exm.pred_ent_dct = utils.NerExample.from_span_level_ner_tgt_lst_sigmoid(span_ner_pred_lst, length, self.args.datareader.id2ent)  # sigmoid
+
+        splited_exms = dataset.instances
+        # [print(exm) for exm in splited_exms]
+        combined_exms = []
+        for nums in seg_info:
+            combined_exm = datautils.NerExample.combine_exm(splited_exms[:nums])
+            combined_exms.append(combined_exm)
+            splited_exms = splited_exms[nums:]
+
+        for c_exm, sub_exm, raw_exm in zip(combined_exms, sub_exms, raw_exms):
+            # print(c_exm)
+            # print(sub_exm)
+            # print(raw_exm)
+            raw_exm.char_lst = list(sub_exm.raw_text)
+            raw_exm.pred_ent_dct = sub_exm.convert2raw_ent_dct(c_exm.pred_ent_dct)
+            print(raw_exm)
+
+    def predict_seq_sents(self, sents):
         input_exm_lst = []
         for sent in sents:
             exm = utils.NerExample(char_lst=list(sent), ent_dct={}, token_deli='')
@@ -942,7 +996,7 @@ if __name__ == "__main__":
         args.bert_model_dir = 'huggingface_model_resource/bert-base-multilingual-cased'
         # args.bert_model_dir = 'huggingface_model_resource/mengzi-bert-base-fin'
         # args.bert_model_dir = 'huggingface_model_resource/roberta-base-finetuned-cluener2020-chinese'
-        args.bert_model_dir = 'huggingface_model_resource/chinese-roberta-wwm-ext'
+        # args.bert_model_dir = 'huggingface_model_resource/chinese-roberta-wwm-ext'
         # args.bert_model_dir = 'huggingface_model_resource/nghuyong/ernie-3.0-base-zh'
 
         exm_lst = utils.NerExample.load_from_jsonl('tmp_test/long_text.jsonl', token_deli='')
@@ -957,8 +1011,6 @@ if __name__ == "__main__":
                                                       max_len=64, prefix_context_len=16, neg_ratio=1., cached_file='tmp_test/long_text_train.jsonl')
         args.test_dataset = datareader.build_dataset(exm_lst[-500:], lang='ZHENG', arch=args.arch,
                                                      max_len=64, prefix_context_len=16, cached_file='tmp_test/long_text_test.jsonl')
-
-
 
     if args.use_refine_mask:
         for name in ['train_dataset', 'dev_dataset', 'test_dataset']:
@@ -1003,7 +1055,7 @@ if __name__ == "__main__":
 
     # ====Inference====
     logger.info(utils.header_format("Starting", sep='='))
-    exist_ckpt = 'model_ckpt/22_11_07_17_31_conll03_span_self_attn_sigmoid_SLR_softmin/best_test_model_24_8664.ckpt'
+    exist_ckpt = 'model_ckpt/23_03_02_22_34_event_span_self_attn_sigmoid/best_test_model_3_2349.ckpt'
     args = utils.load_args_by_json_file(Path(exist_ckpt).parent / 'args.json', exist_args=args)
     trainer = Trainer(args, arch=args.arch, exist_ckpt=exist_ckpt, evaluate=True)
     logger.info(utils.header_format("Inference_by_existed_ckpt", sep='='))
@@ -1012,6 +1064,16 @@ if __name__ == "__main__":
     with ipdb.launch_ipdb_on_exception():
         trainer.predict_span(args.infer_dataset)
         trainer.fast_predict_span(args.infer_dataset)
+    exit(0)
+
+    # ====inference sents====
+    logger.info(utils.header_format("Starting", sep='='))
+    exist_ckpt = 'model_ckpt/23_03_02_22_34_event_span_self_attn_sigmoid/best_test_model_3_2349.ckpt'
+    args = utils.load_args_by_json_file(Path(exist_ckpt).parent / 'args.json', exist_args=args)
+    trainer = Trainer(args, arch=args.arch, exist_ckpt=exist_ckpt, evaluate=True)
+    logger.info(utils.header_format("Inference_by_existed_ckpt", sep='='))
+    sents = [e['text'] for e in datautils.load_jsonl('tmp_test/long_text.jsonl')[:10]]
+    trainer.predict_sents(sents)
     exit(0)
 
     # """ predict test speed """

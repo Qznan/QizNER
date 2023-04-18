@@ -1414,11 +1414,11 @@ class NerExample:
     def __str__(self):
         return self.to_json_str(val_at_end=True)
 
-    # def __repr__(self):
-    #     return str(self.__dict__)
-
     def __repr__(self):
-        return self.__str__()
+        return str(self.__dict__)
+
+    # def __repr__(self):
+    #     return self.__str__()
 
     def to_json_str_old(self, for_human_read=False, external_attrs=None):
         json_dct = {'text': self.text,
@@ -1471,7 +1471,7 @@ class NerExample:
                     if val_at_end:
                         ent_str = self.get_text(s, e)
                         v[1] = ent_str
-                    if isinstance(v[2], float):  # round 3 if pred_score
+                    if len(v) > 2 and isinstance(v[2], float):  # round 3 if pred_score
                         v[2] = round(v[2], 3)
                     if only_pred_str:  # remove pred_score and other
                         v_lst[i] = v[:2]
@@ -1492,6 +1492,28 @@ class NerExample:
                 start, end, *_ = pos  # 防止除了start end信息还有其他
                 pos.append(self.get_text(start, end))
         return ent_dct
+
+    def let_val(self, ent_dct, mode='after_end'):
+        ent_dct_ = {}
+        for ent, v_lst in ent_dct.items():
+            for s, e, *_ in v_lst:
+                if mode == 'after_end':
+                    ent_dct_.setdefault(ent, []).append([s, e, self.get_text(s,e), *_])
+                elif mode == 'at_end':
+                    ent_dct_.setdefault(ent, []).append([s, self.get_text(s, e), *_])
+                else:
+                    raise NotImplementedError
+        return ent_dct_
+
+    @property
+    def ent_dcth(self):
+        return self.let_val(self.ent_dct)
+
+    @property
+    def pred_ent_dcth(self):
+        if hasattr(self, 'pred_ent_dct'):
+            return self.let_val(self.pred_ent_dct)
+        return {}
 
     def __eq__(self, other):
         if self.char_lst == other.char_lst and self.ent_dct == other.ent_dct:
@@ -1803,7 +1825,6 @@ class NerExample:
                             new_pos_lst.append(pos)
                     new_ent_dct[ent] = new_pos_lst
                 setattr(self, attr, new_ent_dct)
-
 
     @staticmethod
     def extract_entity_by_tags(tag_lst, schema='IOB'):
@@ -2151,8 +2172,9 @@ class NerExample:
         #     pred_ent_dct[id2ent[pred_ent_id]].append([start, end, pred_ent_prob])
 
         return dict(pred_ent_dct)
+
     @staticmethod
-    def draw_CM(data_file,save_cm_pic="CM.png"):
+    def draw_CM(data_file, save_cm_pic="CM.png"):
 
         def dct_2_list(dic_o):
             # 将预测结果中的形式转成list
@@ -2228,6 +2250,7 @@ class NerExample:
             plt.savefig(save_cm_pic)
 
             plt.show()
+
         data = load_jsonl(data_file)
 
         CM, labels = build_cm(data)
@@ -2238,14 +2261,14 @@ class NerExample:
     def count_entity_mention(exm_lst,
                              entity_to_mention_file_pth=None,
                              mention_to_entity_file_pth=None,
-                             non_label_threshold = 0
+                             non_label_threshold=0
                              ):
-        #inputs：
+        # inputs：
         #   exm_lst,
         #   entity_to_mention_file_pth 保存每一个实体类型下有什么mention的文件路径
         #   mention_to_entity_file_pth=None, 保存每一个mention标注了哪些实体类型的文件路径
         #   non_label_threshold = 0  如果non label没有超过这个阈值，说明漏标情况不严重，不保存这个mention
-        #returns：
+        # returns：
         #   entity_to_mention 每一个实体类型下有什么mention
         #   new_mention_dct   每一个mention标注了哪些实体类型
         def json_set_to_list(json_old):
@@ -2301,7 +2324,7 @@ class NerExample:
         if mention_to_entity_file_pth is not None:
             save_json(new_mention_dct, mention_to_entity_file_pth)
         return entity_to_mention, new_mention_dct
-    
+
     @staticmethod
     def negative_sample(exm_lst: List, ratio=1.):
         positive_ids, negative_ids = set(), set()
@@ -2712,38 +2735,30 @@ tr:nth-child(even) {
         """按顺序合成多个exm为一个exm text1+text2 = comb_text"""
         curr_length = 0
         combine_char_lst = []
-        combine_ent_dct = defaultdict(list)
-
-        if include_pred_ent:
-            # combine_pred_ent_dct = defaultdict(list)
-            combine_pred_ent_dct = {}
-
+        combine_ent_dct = {}
+        combine_pred_ent_dct = {}
         for exm in exm_lst:
             combine_char_lst.extend(exm.char_lst)
             for ent_type, pos_lst in exm.ent_dct.items():
-                new_pos_lst = copy.deepcopy(pos_lst)
-                for pos in new_pos_lst:
-                    pos[0] += curr_length
-                    pos[1] += curr_length
-                # new_pos_lst = [[start + curr_length, end + curr_length] for start, end in pos_lst]
-                combine_ent_dct[ent_type].extend(new_pos_lst)
+                for s, e, *_ in pos_lst:
+                    s = s + curr_length
+                    e = e + curr_length
+                    combine_ent_dct.setdefault(ent_type, []).append([s, e, *_])
 
             if include_pred_ent and hasattr(exm, 'pred_ent_dct'):
                 for ent_type, pos_lst in exm.pred_ent_dct.items():
-                    new_pos_lst = copy.deepcopy(pos_lst)
-                    for pos in new_pos_lst:
-                        pos[0] += curr_length
-                        pos[1] += curr_length
-                    # new_pos_lst = [[start + curr_length, end + curr_length, prob] for start, end, prob in pos_lst]
-                    # combine_pred_ent_dct[ent_type].extend(new_pos_lst)
-                    combine_pred_ent_dct[ent_type] = new_pos_lst
+                    for s, e, *_ in pos_lst:
+                        s = s + curr_length
+                        e = e + curr_length
+                        combine_pred_ent_dct.setdefault(ent_type, []).append([s, e, *_])
+
             curr_length += len(exm.char_lst)
 
         combine_exm = NerExample(char_lst=combine_char_lst, ent_dct=combine_ent_dct)
         combine_exm.update(anchor='ent_dct')
 
-        # if include_pred_ent:
-        #     combine_exm.pred_ent_dct = dict(combine_pred_ent_dct)
+        if include_pred_ent:
+            combine_exm.pred_ent_dct = combine_pred_ent_dct
 
         return combine_exm
 
@@ -2962,6 +2977,8 @@ tr:nth-child(even) {
             2. 假设 '280000' ent是 '280', 280000 -> char_list [280000] -> subtoken[280,##000] 要注意转换为char_lst坐标ent的end时要+1，改变实体为280000
         """
         raw_text = ''.join(self.char_lst)  # ' 备受“瞩目”的《迷失》CHINA IN SURPRISE DEFEAT,玩家的魔兽'
+        # 后面会重新计算char_lst
+        self.raw_text = raw_text
         o = bert_tokenizer.encode_plus(raw_text, return_offsets_mapping=True, add_special_tokens=False)
         sub_tokens = bert_tokenizer.convert_ids_to_tokens(o['input_ids'])  # = bert_tokenizer.tokenize(raw_text)
         self.sub_tokens = sub_tokens  # ['备|受|[UNK]|瞩|目|[UNK]|的|《|迷|失|》|CH|##IN|##A|IN|SU|##R|##PR|##ISE|DE|##F|##EA|##T|,|玩|家|的|魔|兽'] # 开头的空格会去掉。
@@ -2998,33 +3015,54 @@ tr:nth-child(even) {
         self.char_lst = char_lst  # ['备|受|[UNK]|瞩|目|[UNK]|的|《|迷|失|》|CHINA|IN|SURPRISE|DEFEAT|,|玩|家|的|魔|兽']
         # print(char_lst)
 
-        char_to_raw_lst_indexes = {i: None for i in range(len(raw_text))}  # used to map original indices of ent in raw_text to char_lst
+        raw2char_imap = {i: None for i in range(len(raw_text))}  # used to map original indices of ent in raw_text to char_lst
         for char_lst_idx, lst in enumerate(nested_offset_mapping):
             for raw_start, raw_end in lst:
-                char_to_raw_lst_indexes[raw_start] = char_lst_idx
+                raw2char_imap[raw_start] = char_lst_idx
                 for i in range(raw_start, raw_end):
-                    char_to_raw_lst_indexes[i] = char_lst_idx
-        for i in reversed(sorted(char_to_raw_lst_indexes)):
-            if char_to_raw_lst_indexes[i] == None:
-                char_to_raw_lst_indexes[i] = char_to_raw_lst_indexes[i + 1]
-        # print(char_to_raw_lst_indexes)  # {0:0,1:0,2:1,3:2,4:3,5:4,6:5,7:6,8:7,9:8,10:9,11:10,12:11,13:11,14:11,15:11,16:11,17:12,18:12,19:12,20:13,21:13,
+                    raw2char_imap[i] = char_lst_idx
+        for i in reversed(sorted(raw2char_imap)):
+            if raw2char_imap[i] == None:
+                raw2char_imap[i] = raw2char_imap[i + 1]
+        self.raw2char_imap = raw2char_imap
+        # print(raw2char_imap)  # {0:0,1:0,2:1,3:2,4:3,5:4,6:5,7:6,8:7,9:8,10:9,11:10,12:11,13:11,14:11,15:11,16:11,17:12,18:12,19:12,20:13,21:13,
         # 22:13,23:13,24:13,25:13,26:13,27:13,28:13,29:14,30:14,31:14,32:14,33:14,34:14,35:14,36:15,37:16,38:17,39:18,40:19,41:20}
+        # 代表raw的第0和第1都在char的第0
+        # 里面的位置信息已经考虑了空格被tokenizer去掉的情况，可放心还原回有空格的raw_text
+        char2raw_imap = {}
+        for r, c in self.raw2char_imap.items():
+            char2raw_imap.setdefault(c, []).append(r)
+        for c, rs in char2raw_imap.items():
+            char2raw_imap[c] = sorted(rs)[0]  # 记录char中对应raw字符的第一个
+        char2raw_imap.update({len(char_lst): len(raw_text)})  # 补上最后len长度的坐标映射。因为end可以是len(char_lst)
+        self.char2raw_imap = char2raw_imap
 
+        # ent pos从raw转为char
         for ent_type, v_lst in self.ent_dct.items():
             for idx in range(len(v_lst)):
                 start = v_lst[idx][0]
                 end = v_lst[idx][1]
-                new_start = char_to_raw_lst_indexes[start]
+                new_start = raw2char_imap[start]
                 if end == len(raw_text):
-                    new_end = char_to_raw_lst_indexes[end - 1] + 1
+                    new_end = raw2char_imap[end - 1] + 1
                 else:
-                    new_end = char_to_raw_lst_indexes[end]
+                    new_end = raw2char_imap[end]
                 if new_end == new_start:  # 上面 shortcoming2的情况, 实体跟前面的或者后面的组合成token了 要且只需特殊处理下后的情况
                     new_end = new_start + 1
                 v_lst[idx][0] = new_start
                 v_lst[idx][1] = new_end
         self.update_text()
         self.clean_if_invalid_ent()
+
+    def convert2raw_ent_dct(self, ent_dct):
+        raw_ent_dct = {}
+        if hasattr(self, 'char2raw_imap'):
+            for ent, v_lst in ent_dct.items():
+                for s, e, *_ in v_lst:
+                    raw_s = self.char2raw_imap[s]
+                    raw_e = self.char2raw_imap[e]
+                    raw_ent_dct.setdefault(ent, []).append([raw_s, raw_e, *_])
+        return raw_ent_dct
 
     @staticmethod
     def _tokenized2nested(tokenized_raw_text: List[str], tokenizer, max_len: int = 5):
