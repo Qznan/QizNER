@@ -412,7 +412,7 @@ class Trainer:
         self.metrics_jsonl.sort(key=lambda e: e['mode'])
         utils.save_jsonl(self.metrics_jsonl, (self.curr_ckpt_dir / 'metrics.jsonl'), verbose=False)
         utils.save_args_to_json_file(args, self.curr_ckpt_dir / 'args.json')
-        utils.list2file(self.args.datareader.ent_lst, self.curr_ckpt_dir / 'ent_lst.txt')
+        utils.list2file(self.args.datareader.ent_lst, self.curr_ckpt_dir / 'ent_lst.txt', verbose=False)
         if args.flat:
             return 0., f, exm_lst, detail_info_str
         else:
@@ -516,7 +516,7 @@ class Trainer:
         self.metrics_jsonl.sort(key=lambda e: e['mode'])
         utils.save_jsonl(self.metrics_jsonl, (self.curr_ckpt_dir / 'metrics.jsonl'), verbose=False)
         utils.save_args_to_json_file(args, self.curr_ckpt_dir / 'args.json')
-        utils.list2file(self.args.datareader.ent_lst, self.curr_ckpt_dir / 'ent_lst.txt')
+        utils.list2file(self.args.datareader.ent_lst, self.curr_ckpt_dir / 'ent_lst.txt', verbose=False)
         return 0, f, exm_lst, detail_info_str
 
     def predict_span(self, dataset):
@@ -655,20 +655,29 @@ class Trainer:
         # self.args.reporter.append([self.args.link_threshold, f, ef])
 
     def predict_sents(self, sents):
-        if self.arch == 'span':
-            return self.predict_span_sents(sents)
-        if self.arch == 'seq':
-            return self.predict_seq_sents(sents)
-
-    def predict_span_sents(self, sents):
         raw_exms = []
         for sent in sents:
-            exm = utils.NerExample(char_lst=list(sent), ent_dct={}, token_deli='')
-            raw_exms.append(exm)
-        sub_exms  = copy.deepcopy(raw_exms)
-        [exm.process_ZHENG_by_tokenizer(self.args.datareader.tokenizer) for exm in sub_exms]
+            if isinstance(sent, str):
+                exm = utils.NerExample(char_lst=list(sent), ent_dct={}, token_deli='')
+                raw_exms.append(exm)
+            elif isinstance(sent, dict):
+                exm = utils.NerExample(char_lst=sent['text'], ent_dct={}, token_deli='')
+                exm.file_name = 'dummy'
+                raw_exms.append(exm)
+            else:
+                raise NotImplementedError
+        if self.arch == 'span':
+            return self.predict_span_sents(raw_exms)
+        if self.arch == 'seq':
+            return self.predict_seq_sents(raw_exms)
 
-        dataset = self.args.datareader.build_dataset(sub_exms, max_len=512, lang='ZHENG', arch=args.arch)
+    def predict_span_sents(self, raw_exms):
+        args = self.args
+
+        sub_exms  = copy.deepcopy(raw_exms)
+        [exm.process_ZHENG_by_tokenizer(args.datareader.tokenizer) for exm in sub_exms]
+
+        dataset = args.datareader.build_dataset(sub_exms, max_len=512, lang='ZHENG', arch=args.arch)
         seg_info = dataset.seg_info
         data_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=False,
                                                   collate_fn=args.datareader.get_batcher_fn(gpu=self.use_gpu, arch=self.arch, device=self.device))
@@ -687,9 +696,9 @@ class Trainer:
             for exm, length, span_ner_pred_lst in zip(batch_ner_exm, batch_seq_len, batch_span_ner_pred_lst):
                 if args.span_loss_type == 'softmax':
                     negative_set = {0}
-                    exm.pred_ent_dct = utils.NerExample.from_span_level_ner_tgt_lst(span_ner_pred_lst, length, self.args.datareader.id2ent, negative_set=negative_set)  # softmax
+                    exm.pred_ent_dct = utils.NerExample.from_span_level_ner_tgt_lst(span_ner_pred_lst, length, args.datareader.id2ent, negative_set=negative_set)  # softmax
                 if args.span_loss_type == 'sigmoid':
-                    exm.pred_ent_dct = utils.NerExample.from_span_level_ner_tgt_lst_sigmoid(span_ner_pred_lst, length, self.args.datareader.id2ent)  # sigmoid
+                    exm.pred_ent_dct = utils.NerExample.from_span_level_ner_tgt_lst_sigmoid(span_ner_pred_lst, length, args.datareader.id2ent)  # sigmoid
 
         splited_exms = dataset.instances
         # [print(exm) for exm in splited_exms]
@@ -707,13 +716,11 @@ class Trainer:
             raw_exm.pred_ent_dct = sub_exm.convert2raw_ent_dct(c_exm.pred_ent_dct)
             print(raw_exm)
 
-    def predict_seq_sents(self, sents):
-        input_exm_lst = []
-        for sent in sents:
-            exm = utils.NerExample(char_lst=list(sent), ent_dct={}, token_deli='')
-            input_exm_lst.append(exm)
+        return [raw_exm.to_json_str(val_at_end=False, val_after_end=True, flat_pred_ent=True) for raw_exm in raw_exms]
 
-        dataset = self.args.datareader.build_dataset(input_exm_lst, lang='ZH', arch=args.arch)
+    def predict_seq_sents(self, raw_exms):
+        args = self.args
+        dataset = args.datareader.build_dataset(raw_exms, lang='ZH', arch=args.arch)
 
         data_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=False,
                                                   collate_fn=args.datareader.get_batcher_fn(gpu=self.use_gpu, mode=self.arch, device=self.device))
@@ -732,7 +739,7 @@ class Trainer:
                 emission_probs = torch.softmax(emission, -1).cpu().detach().numpy()  # [bat,len,tag]
 
             for exm, decode_ids_, emission_probs_ in zip(batch_ner_exm, decode_ids, emission_probs):
-                tag_lst = [self.args.datareader.id2tag[tag_id] for tag_id in decode_ids_]
+                tag_lst = [args.datareader.id2tag[tag_id] for tag_id in decode_ids_]
                 emission_prob = [emission_probs_[i, did] for i, did in enumerate(decode_ids_)]
                 # assert len(tag_lst) == len(exm.char_lst)
                 pred_ent_dct, _ = utils.NerExample.extract_entity_by_tags(tag_lst)
@@ -744,9 +751,10 @@ class Trainer:
                         # e.append(1.)  # 假设概率为1
                 exm.pred_ent_dct = pred_ent_dct
 
-        for exm in input_exm_lst:
+        for exm in raw_exms:
             print(exm)
 
+        return [raw_exm.to_json_str(val_at_end=False, val_after_end=True, flat_pred_ent=True) for raw_exm in raw_exms]
 
 if __name__ == "__main__":
     from rich.logging import RichHandler

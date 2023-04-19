@@ -193,7 +193,7 @@ def list_dir_and_file(path):
     return dirs, files
 
 
-def list2file(lines, out_file, add_nl=True, deli='\t'):
+def list2file(lines, out_file, add_nl=True, deli='\t', verbose=True):
     # 兼容
     if isinstance(lines, str):
         lines, out_file = out_file, lines
@@ -204,7 +204,8 @@ def list2file(lines, out_file, add_nl=True, deli='\t'):
         # other: str, int, float, bool, obj will use f'{} to strify
         out_list = [f'{line}\n' if add_nl else f'{line}' for line in lines]
         f.writelines(out_list)
-        print(f'save ok! filename: {out_file}, length: {len(out_list)}')
+        if verbose:
+            print(f'save ok! filename: {out_file}, length: {len(out_list)}')
 
 
 def freqs(lst):
@@ -1449,15 +1450,17 @@ class NerExample:
 
         return json.dumps(json_dct, ensure_ascii=False)
 
-    def to_json_str(self, val_at_end=True, only_pred_str=False, flat_pred_ent=False, external_attrs=None, for_human_read=True):
+    def to_json_str(self, val_at_end=True, val_after_end=False, only_pred_str=False, flat_pred_ent=False, external_attrs=None, for_human_read=True):
         """ val_at_end = True: 省略end直接将ent输出
             only_pred_str = True  # remove pred_score and other
         """
         json_dct = {'text': self.text, 'ent_dct': copy.deepcopy(self.ent_dct)}
         for ent, v_lst in json_dct['ent_dct'].items():
             for v in v_lst:
+                ent_str = self.get_text(v[0], v[1])
+                if val_after_end:
+                    v.insert(2, ent_str)
                 if val_at_end:
-                    ent_str = self.get_text(v[0], v[1])
                     v[1] = ent_str  # 省略end直接将ent输出
         if hasattr(self, 'pred_ent_dct'):
             if flat_pred_ent:
@@ -1467,14 +1470,23 @@ class NerExample:
             json_dct['pred_ent_dct'] = pred_ent_dct
             for ent, v_lst in json_dct['pred_ent_dct'].items():
                 for i, v in enumerate(v_lst):
+                    ent_str = self.get_text(v[0], v[1])
                     s, e, *_ = v
+                    if val_after_end:
+                        v.insert(2, ent_str)
                     if val_at_end:
-                        ent_str = self.get_text(s, e)
                         v[1] = ent_str
-                    if len(v) > 2 and isinstance(v[2], float):  # round 3 if pred_score
-                        v[2] = round(v[2], 3)
-                    if only_pred_str:  # remove pred_score and other
-                        v_lst[i] = v[:2]
+                    if val_after_end:
+                        if len(v) > 3 and isinstance(v[3], float):  # round 3 if pred_score
+                            v[3] = round(v[3], 3)  # 也可设置为6,因为如果分数不够精确在重新读取后可能导致flat_ent时结果不一致性能降低
+                        if only_pred_str:  # remove pred_score and other
+                            v_lst[i] = v[:3]
+                    else:
+                        if len(v) > 2 and isinstance(v[2], float):  # round 3 if pred_score
+                            v[2] = round(v[2], 3)
+                        if only_pred_str:  # remove pred_score and other
+                            v_lst[i] = v[:2]
+
         if hasattr(self, 'cls_tgt'):
             json_dct['cls_tgt'] = self.cls_tgt
         if external_attrs is not None:
@@ -1999,6 +2011,8 @@ class NerExample:
                                 end += 1
                             # end = start + len(mention)  # 仅对于字符级样本有用
                             pos[1] = end
+                        if len(pos) == 4 and isinstance(pos[-2], str) and pos[-2] == token_deli.join(char_lst[pos[0]:pos[1]]):
+                            pos.pop(-2)
                         if isinstance(pos[-1], str) and pos[-1] == token_deli.join(char_lst[pos[0]:pos[1]]):  # 如果最后是4h的text 则去掉
                             pos.pop(-1)
                 exm.pred_ent_dct = pred_ent_dct
