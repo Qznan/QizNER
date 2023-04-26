@@ -1020,6 +1020,55 @@ if __name__ == "__main__":
         args.test_dataset = datareader.build_dataset(exm_lst[-500:], lang='ZHENG', arch=args.arch,
                                                      max_len=64, prefix_context_len=16, cached_file='tmp_test/long_text_test.jsonl')
 
+    if args.corpus == 'event_10fold':
+        args.bert_model_dir = 'huggingface_model_resource/bert-base-multilingual-cased'
+        exm_lst = utils.NerExample.load_from_jsonl('tmp_test/long_text.jsonl', token_deli='')
+        args.flat = True
+        ent_lst = utils.NerExample.get_ents_set(exm_lst)
+        if args.span_loss_type == 'softmax': ent_lst = ['O'] + ent_lst
+        datareader = NerDataReader(args.bert_model_dir, 512, ent_file_or_ent_lst=ent_lst, loss_type=args.span_loss_type, args=args)
+
+        from sklearn.model_selection import KFold
+        kf = KFold(n_splits=10, shuffle=True)
+
+        for kid, (train_index, test_index) in enumerate(kf.split(exm_lst)):
+            curr_kf_train_exm_lst = [exm for idx, exm in enumerate(exm_lst) if idx in train_index]
+            curr_kf_test_exm_lst = [exm for idx, exm in enumerate(exm_lst) if idx in test_index]
+            args.train_dataset = datareader.build_dataset(curr_kf_train_exm_lst, lang='ZHENG', arch=args.arch,
+                                                          max_len=64, prefix_context_len=16, neg_ratio=1.)
+            args.test_dataset = datareader.build_dataset(curr_kf_test_exm_lst, lang='ZHENG', arch=args.arch)
+
+            args.datareader = datareader
+            # args.batch_size = 16
+            # args.batch_size = 1
+            args.num_warmup_steps = 1000
+            args.num_warmup_steps = 722  # 2epo
+            # args.num_warmup_steps = 3610
+            args.lr = [1e-5, 2e-5, 8e-6][0]
+            if args.interact_type == 'cconcat':
+                args.batch_size = 12  # to avoid out of GPU memory
+            if args.corpus in ['ace04', 'ace05']:
+                args.batch_size = 12
+            if args.pretrain_mode == 'feature_based':
+                args.batch_size = 256
+                args.batch_size = 64
+                args.lr = 1e-3
+                args.num_warmup_steps = 100
+
+            logger.info(f'using corpus {args.corpus}')
+
+            # ====Train====
+            logger.info(utils.header_format(f"Starting K_Fold {kid}", sep='='))
+            args.ckpt_dir = f'model_ckpt/KFold{kid}'
+            trainer = Trainer(args, arch=args.arch)
+            logger.info(utils.header_format(f"Training K_Fold {kid}", sep='='))
+            with ipdb.launch_ipdb_on_exception():
+                trainer.train()
+        exit(0)
+
+
+
+
     if args.use_refine_mask:
         for name in ['train_dataset', 'dev_dataset', 'test_dataset']:
             if hasattr(args, name):
