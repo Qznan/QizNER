@@ -64,10 +64,12 @@ class Trainer:
 
         if exist_ckpt is not None:
             args.exist_ckpt = exist_ckpt
-            if not self.use_gpu:
-                self.model.load_state_dict(torch.load(exist_ckpt, map_location=torch.device('cpu')))
-            else:
-                self.model.load_state_dict(torch.load(exist_ckpt, map_location=torch.device('cuda')))
+            map_location = torch.device('cuda') if self.use_gpu else torch.device('cpu')
+            exist_state_dict = torch.load(exist_ckpt, map_location=map_location)
+            if getattr(args, 'exist_ckpt_slr_but_curr_nonslr', None):
+                exist_state_dict['ffn_layer.weight'] = exist_state_dict['ffn_layer.weight'][:-100, :]
+                exist_state_dict['ffn_layer.bias'] = exist_state_dict['ffn_layer.bias'][:-100]
+            self.model.load_state_dict(exist_state_dict)
             print(f'load exist model ckpt success. {exist_ckpt} ')
 
         self.saved_exm_extn_attrs = []
