@@ -1450,7 +1450,7 @@ class NerExample:
 
         return json.dumps(json_dct, ensure_ascii=False)
 
-    def to_json_str(self, val_at_end=True, val_after_end=False, only_pred_str=False, flat_pred_ent=False, external_attrs=None, for_human_read=True):
+    def to_json_str(self, val_at_end=True, val_after_end=False, only_pred_str=False, flat_pred_ent=False, external_attrs=None, score_decimal=3, for_human_read=True):
         """ val_at_end = True: 省略end直接将ent输出
             only_pred_str = True  # remove pred_score and other
         """
@@ -1478,12 +1478,12 @@ class NerExample:
                         v[1] = ent_str
                     if val_after_end:
                         if len(v) > 3 and isinstance(v[3], float):  # round 3 if pred_score
-                            v[3] = round(v[3], 3)  # 也可设置为6,因为如果分数不够精确在重新读取后可能导致flat_ent时结果不一致性能降低
+                            v[3] = round(v[3], score_decimal)  # 也可设置为6,因为如果分数不够精确在重新读取后可能导致flat_ent时结果不一致性能降低
                         if only_pred_str:  # remove pred_score and other
                             v_lst[i] = v[:3]
                     else:
                         if len(v) > 2 and isinstance(v[2], float):  # round 3 if pred_score
-                            v[2] = round(v[2], 3)
+                            v[2] = round(v[2], score_decimal)
                         if only_pred_str:  # remove pred_score and other
                             v_lst[i] = v[:2]
 
@@ -1999,7 +1999,7 @@ class NerExample:
             exm = NerExample(char_lst=char_lst, ent_dct=ent_dct, token_deli=token_deli, dedup=dedup)
             exm.update(anchor='ent_dct', dedup=dedup)
 
-            if 'pred_ent_dct' in obj:
+            if 'pred_ent_dct' in obj:  # 注意 由于保存时预测分数的精度不是保留全部，恢复时损失的精度有可能造成metric的结果有不同(span flat)的时候
                 pred_ent_dct = obj['pred_ent_dct']
                 for k, pos_lst in pred_ent_dct.items():
                     for pos in pos_lst:
@@ -2362,25 +2362,33 @@ class NerExample:
         return new_exm_lst
 
     @staticmethod
-    def gen_html(exm_lst: List, html_file):
+    def gen_html(exm_lst: List, html_file, pred_score=True, mode='train|test'):
         exms_html = []
-        for exm in exm_lst:
-            tmp_char_lst = exm.char_lst[:]
-            for ent, pos_lst in exm.ent_dct.items():
-                for s, e, *_ in pos_lst:
-                    tmp_char_lst[s] = f'<span style="color:blue" title="{ent}">||{tmp_char_lst[s]}'
-                    tmp_char_lst[e - 1] = f'{tmp_char_lst[e - 1]}||</span>'
-            exm_html = f'<tr><td>{" ".join(tmp_char_lst)}</td></tr>'
-            exms_html.append(exm_html)
+        modes = mode.split('|')  # 输出的方式 1个训练1个测试或单个测试 'train' 'test' 'test|train' 'train|test'
+        for edx, exm in enumerate(exm_lst):
+            for mode in modes:
+                if mode == 'train':
+                    tmp_char_lst = exm.char_lst[:]
+                    for ent, pos_lst in exm.ent_dct.items():
+                        for s, e, *_ in pos_lst:
+                            tmp_char_lst[s] = f'<span style="color:blue" title="{ent}">||{tmp_char_lst[s]}'
+                            tmp_char_lst[e - 1] = f'{tmp_char_lst[e - 1]}||</span>'
+                    exm_html = f'<tr><td>训练{edx}</td><td>{" ".join(tmp_char_lst)}</td></tr>'
+                    exms_html.append(exm_html)
 
-            if hasattr(exm, 'pred_ent_dct'):
-                tmp_char_lst = exm.char_lst[:]
-                for ent, pos_lst in exm.pred_ent_dct.items():
-                    for s, e, *_ in pos_lst:
-                        tmp_char_lst[s] = f'<span style="color:red" title="{ent}">||{tmp_char_lst[s]}'
-                        tmp_char_lst[e - 1] = f'{tmp_char_lst[e - 1]}||</span>'
-                exm_html = f'<tr><td>{" ".join(tmp_char_lst)}</td></tr>'
-                exms_html.append(exm_html)
+                if mode == 'test':
+                    if hasattr(exm, 'pred_ent_dct'):
+                        tmp_char_lst = exm.char_lst[:]
+                        for ent, pos_lst in exm.pred_ent_dct.items():
+                            for s, e, *_ in pos_lst:
+                                if pred_score and _ and isinstance(_[-1], float):
+                                    title = f'{ent} {_[-1]:.6f}'
+                                else:
+                                    title = ent
+                                tmp_char_lst[s] = f'<span style="color:red" title="{title}">||{tmp_char_lst[s]}'
+                                tmp_char_lst[e - 1] = f'{tmp_char_lst[e - 1]}||</span>'
+                        exm_html = f'<tr><td>测试{edx}</td><td>{" ".join(tmp_char_lst)}</td></tr>'
+                        exms_html.append(exm_html)
 
         exms_html = '\n'.join(exms_html)
         html = r"""<!DOCTYPE html>
