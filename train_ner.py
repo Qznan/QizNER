@@ -6,8 +6,6 @@ started from 2021/1
 """
 import os, time, sys, argparse, copy, random, subprocess
 
-import datautils
-
 sys.path = ['.'] + sys.path
 import torch
 import numpy as np
@@ -706,7 +704,7 @@ class Trainer:
         # [print(exm) for exm in splited_exms]
         combined_exms = []
         for nums in seg_info:
-            combined_exm = datautils.NerExample.combine_exm(splited_exms[:nums])
+            combined_exm = utils.NerExample.combine_exm(splited_exms[:nums])
             combined_exms.append(combined_exm)
             splited_exms = splited_exms[nums:]
 
@@ -1131,7 +1129,7 @@ if __name__ == "__main__":
     args = utils.load_args_by_json_file(Path(exist_ckpt).parent / 'args.json', exist_args=args)
     trainer = Trainer(args, arch=args.arch, exist_ckpt=exist_ckpt, evaluate=True)
     logger.info(utils.header_format("Inference_by_existed_ckpt", sep='='))
-    sents = [e['text'] for e in datautils.load_jsonl('tmp_test/long_text.jsonl')[:10]]
+    sents = [e['text'] for e in utils.load_jsonl('tmp_test/long_text.jsonl')[:10]]
     trainer.predict_sents(sents)
     exit(0)
 

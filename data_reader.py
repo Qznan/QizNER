@@ -9,12 +9,10 @@ import torch
 import numpy as np
 from pathlib import Path
 from transformers import BertTokenizer, AutoTokenizer, RobertaTokenizer
-import transformers
 
-import datautils
 from datautils import NerExample, Any2Id, file2list
 import time, copy, os
-import ipdb
+# import ipdb
 
 try:
     from prefetch_generator import BackgroundGenerator  # prefetch-generator
@@ -178,7 +176,6 @@ class NerDataReader:
         else:
             if 'distilled_task_ent_output' in exm.train_cache:
                 exm.train_cache.pop('distilled_task_ent_output')
-        # ipdb.set_trace()
         return dict(ner_exm=exm, **exm.train_cache)
 
     def get_batcher_fn(self, gpu=False, device=None, arch='span'):
@@ -442,15 +439,14 @@ class NerDataReader:
         new_exm_lst = []
         seg_info = []  # 用以存放句子如何分割 [2,1,2]]
         for i, exm in enumerate(exm_lst):
-            with ipdb.launch_ipdb_on_exception():
-                segmented_exm_lst = NerExample.segment_exm(exm, max_size=max_len, prefix_context_len=prefix_context_len)  # already consider [CLS] [SEP]
+            # with ipdb.launch_ipdb_on_exception():
+            segmented_exm_lst = NerExample.segment_exm(exm, max_size=max_len, prefix_context_len=prefix_context_len)  # already consider [CLS] [SEP]
             seg_info.append(len(segmented_exm_lst))
             if len(segmented_exm_lst) > 1:
                 print(f'[index:{i}] find one overlength example (len:{len(exm.char_lst)} '
                       f'subtoknes len:{len(exm.sub_tokens) if hasattr(exm, "sub_tokens") else None}) '
                       f'due to subtokens longer than max_len({max_len}), '
                       f'segment to {len(segmented_exm_lst)} exms')
-                # ipdb.set_trace()
                 segmented_nums += 1
                 num_add_due_to_segment += len(segmented_exm_lst) - 1
             new_exm_lst.extend(segmented_exm_lst)
