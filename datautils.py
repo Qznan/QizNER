@@ -11,7 +11,6 @@ import json
 import random
 from pathlib import Path
 
-import ipdb
 import numpy as np
 import logging
 import logging.handlers
@@ -1646,10 +1645,8 @@ class NerExample:
         for ent_type, start, end in ent_lst:
             if start >= prev_end:  # 引文end是闭区间 所以可以等于
                 # 标注该entity
-                if start >= end:
-                    print(char_lst)
-                    print(ent_dct)
-                    ipdb.set_trace()
+                # if start >= end:  # 无效空实体 一版前面已经过滤了
+                #     continue
                 NerExample.assign_ent_to_tag_lst(tag_lst, ent_type, start, end, schema=schema)
                 # tag_lst[start:end] = [f'B-{ent_type}'] + [f'I-{ent_type}'] * (end - start - 1)
                 # tag_lst[start:end] = ['O'] * len(end - start)
