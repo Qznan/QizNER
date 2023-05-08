@@ -811,7 +811,7 @@ if __name__ == "__main__":
     parser.add_argument('--eval_after_step', default=0, type=int)
     parser.add_argument('--num_epochs', default=30, type=int)
     parser.add_argument('--batch_size', default=48, type=int)
-    parser.add_argument('--ckpt_dir', default=Path('model_ckpt'), type=Path)
+    parser.add_argument('--ckpt_dir', default='model_ckpt', type=str)
 
     args = parser.parse_args()
 
