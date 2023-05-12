@@ -2359,7 +2359,7 @@ class NerExample:
         return new_exm_lst
 
     @staticmethod
-    def gen_html(exm_lst: List, html_file, pred_score=True, mode='train|test'):
+    def gen_html(exm_lst: List, html_file=None, pred_score=True, mode='train|test'):
         exms_html = []
         modes = mode.split('|')  # 输出的方式 1个训练1个测试或单个测试 'train' 'test' 'test|train' 'train|test'
         for edx, exm in enumerate(exm_lst):
@@ -2423,7 +2423,9 @@ tr:nth-child(even) {
 </body>
 </html>
 """
-        list2file([html], out_file=html_file)
+        if html_file is not None:
+            list2file([html], out_file=html_file)
+        return html
 
     def get_conj_info(self, conj_scores: List, decimal=None):
         # conj_res: tok1 conj_score1 tok2 conj_score2...
