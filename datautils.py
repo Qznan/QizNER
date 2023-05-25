@@ -2359,33 +2359,55 @@ class NerExample:
         return new_exm_lst
 
     @staticmethod
-    def gen_html(exm_lst: List, html_file=None, pred_score=True, mode='train|test'):
+    def gen_html(exm_lst: List, html_file=None, pred_score=True, mode='train|test', horizontal=True, split_offset: List[List]=None):
+        # horizontal 横版排列 否则纵向排列
+        # split_offset 增加html文本换行符以显示特定的结构信息。
         exms_html = []
         modes = mode.split('|')  # 输出的方式 1个训练1个测试或单个测试 'train' 'test' 'test|train' 'train|test'
         for edx, exm in enumerate(exm_lst):
-            for mode in modes:
-                if mode == 'train':
-                    tmp_char_lst = exm.char_lst[:]
-                    for ent, pos_lst in exm.ent_dct.items():
-                        for s, e, *_ in pos_lst:
-                            tmp_char_lst[s] = f'<span style="color:blue" title="{ent}">||{tmp_char_lst[s]}'
-                            tmp_char_lst[e - 1] = f'{tmp_char_lst[e - 1]}||</span>'
-                    exm_html = f'<tr><td>训练{edx}</td><td>{" ".join(tmp_char_lst)}</td></tr>'
-                    exms_html.append(exm_html)
+            if 'train' in modes:
+                tmp_char_lst = exm.char_lst[:]
+                for ent, pos_lst in exm.ent_dct.items():
+                    for s, e, *_ in pos_lst:
+                        tmp_char_lst[s] = f'<span style="color:blue" title="{ent}">||{tmp_char_lst[s]}'
+                        tmp_char_lst[e - 1] = f'{tmp_char_lst[e - 1]}||</span>'
+                if split_offset is not None:
+                    for offset in split_offset[edx]:
+                        tmp_char_lst[offset] = tmp_char_lst[offset] + '<br>'
+                train_html = " ".join(tmp_char_lst)
 
-                if mode == 'test':
-                    if hasattr(exm, 'pred_ent_dct'):
-                        tmp_char_lst = exm.char_lst[:]
-                        for ent, pos_lst in exm.pred_ent_dct.items():
-                            for s, e, *_ in pos_lst:
-                                if pred_score and _ and isinstance(_[-1], float):
-                                    title = f'{ent} {_[-1]:.6f}'
-                                else:
-                                    title = ent
-                                tmp_char_lst[s] = f'<span style="color:red" title="{title}">||{tmp_char_lst[s]}'
-                                tmp_char_lst[e - 1] = f'{tmp_char_lst[e - 1]}||</span>'
-                        exm_html = f'<tr><td>测试{edx}</td><td>{" ".join(tmp_char_lst)}</td></tr>'
-                        exms_html.append(exm_html)
+            if 'test' in modes and hasattr(exm, 'pred_ent_dct'):
+                tmp_char_lst = exm.char_lst[:]
+                for ent, pos_lst in exm.pred_ent_dct.items():
+                    for s, e, *_ in pos_lst:
+                        if pred_score and _ and isinstance(_[-1], float):
+                            title = f'{ent} {_[-1]:.6f}'
+                        else:
+                            title = ent
+                        tmp_char_lst[s] = f'<span style="color:red" title="{title}">||{tmp_char_lst[s]}'
+                        tmp_char_lst[e - 1] = f'{tmp_char_lst[e - 1]}||</span>'
+                if split_offset is not None:
+                    for offset in split_offset[edx]:
+                        tmp_char_lst[offset] = tmp_char_lst[offset] + '<br>'
+                test_html = " ".join(tmp_char_lst)
+
+            if len(modes) == 1:
+                html = train_html if modes[0] == 'train' else test_html
+                final_html = f'<tr><td>{"训练" if modes[0] == "train" else "测试"}{edx}</td><td>{html}</td></tr>'
+                exms_html.append(final_html)
+
+            if len(modes) == 2:
+                if horizontal:
+                    if modes == ['train', 'test']:
+                        exms_html.append(f'<tr><td>训练-测试{edx}</td><td>{train_html}</td><td>{test_html}</td></tr>')
+                    elif modes == ['test', 'train']:
+                        exms_html.append(f'<tr><td>测试-训练{edx}</td><td>{train_html}</td><td>{test_html}</td></tr>')
+                else:
+                    for mode in modes:
+                        if mode == 'train':
+                            exms_html.append(f'<tr><td>训练{edx}</td><td>{train_html}</td></tr>')
+                        elif mode == 'test':
+                            exms_html.append(f'<tr><td>测试{edx}</td><td>{test_html}</td></tr>')
 
         exms_html = '\n'.join(exms_html)
         html = r"""<!DOCTYPE html>
