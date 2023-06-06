@@ -193,8 +193,8 @@ def list_dir_and_file(path):
 
 
 def list2file(lines, out_file, add_nl=True, deli='\t', verbose=True):
-    # 兼容
-    if isinstance(lines, str):
+    make_sure_dir_exist(out_file)
+    if isinstance(lines, str):  # 兼容
         lines, out_file = out_file, lines
     assert len(lines) > 0, 'lines must be not None'
     with open(out_file, 'w', encoding='U8') as f:
