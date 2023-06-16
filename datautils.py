@@ -192,6 +192,12 @@ def list_dir_and_file(path):
     return dirs, files
 
 
+def txt2file(txt: str, out_file, encoding='U8'):
+    with open(out_file, 'w', encoding=encoding) as f:
+        f.write(txt)
+    return True
+
+
 def list2file(lines, out_file, add_nl=True, deli='\t', verbose=True):
     make_sure_dir_exist(out_file)
     if isinstance(lines, str):  # 兼容
@@ -1509,7 +1515,7 @@ class NerExample:
         for ent, v_lst in ent_dct.items():
             for s, e, *_ in v_lst:
                 if mode == 'after_end':
-                    ent_dct_.setdefault(ent, []).append([s, e, self.get_text(s,e), *_])
+                    ent_dct_.setdefault(ent, []).append([s, e, self.get_text(s, e), *_])
                 elif mode == 'at_end':
                     ent_dct_.setdefault(ent, []).append([s, self.get_text(s, e), *_])
                 else:
@@ -2359,7 +2365,7 @@ class NerExample:
         return new_exm_lst
 
     @staticmethod
-    def gen_html(exm_lst: List, html_file=None, pred_score=True, mode='train|test', horizontal=True, split_offset: List[List]=None):
+    def gen_html(exm_lst: List, html_file=None, pred_score=True, mode='train|test', horizontal=True, split_offset: List[List] = None):
         # horizontal 横版排列 否则纵向排列
         # split_offset 增加html文本换行符以显示特定的结构信息。
         exms_html = []
