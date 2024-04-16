@@ -160,6 +160,42 @@ def load_jsonl(jsonl_file):
         return [json.loads(line.strip()) for line in f]
 
 
+class MyJSONEncoder(json.JSONEncoder):
+    """用以生成json字符时强制列表类型数据不换行显示"""
+
+    def iterencode(self, o, _one_shot=False):
+        list_lvl = 0
+        for s in super(MyJSONEncoder, self).iterencode(o, _one_shot=_one_shot):
+            if s.startswith('['):
+                list_lvl += 1
+                s = s.replace('\n', '').rstrip()
+            elif 0 < list_lvl:
+                s = s.replace('\n', '').rstrip()
+                if s and s[-1] == ',':
+                    s = s[:-1] + self.item_separator
+                elif s and s[-1] == ':':
+                    s = s[:-1] + self.key_separator
+            if s.endswith(']'):
+                list_lvl -= 1
+            yield s
+
+
+def printjson(object, value_func=None, sort=True, collapse_list=False):
+    """将python对象用json格式打印"""
+    object = object.copy()
+    if value_func is not None and isinstance(object, dict):
+        for k, v in object.items():
+            object[k] = value_func(object[k])
+    # if sort:
+    #     object = {key: object[key] for key in sorted(object.keys())}  # sorted了之后输出的json也是sorted的
+    if collapse_list:
+        s = json.dumps(object, indent=1, ensure_ascii=False, sort_keys=sort, cls=MyJSONEncoder)
+    else:
+        s = json.dumps(object, indent=1, ensure_ascii=False, sort_keys=sort)
+    print(s)
+    return s
+
+
 def stats_lst(lst, digtal=True):
     ret = {}
     if digtal and lst:
@@ -183,6 +219,38 @@ def stats_lst(lst, digtal=True):
         ret['brief_counts'] = brief_counts
         return ret
     return {}
+
+
+def aggreate_stats(stats: dict, agg_key_func=lambda k: k.split('_'[0]), reduce='sum'):
+    """合并特定键的统计数据
+        如合并_前缀相同的键 默认reduce=none即列表拼接
+    """
+    agg_stats = {}
+    for k, v in stats.items():
+        agg_stats.setdefault(agg_key_func(k), []).append(v)
+    if reduce == 'none':
+        return agg_stats
+    elif reduce == 'sum':
+        agg_stats = {k: sum(v) for k, v in agg_stats.items()}
+        return agg_stats
+    elif reduce == 'mean':
+        agg_stats = {k: sum(v) / len(v) for k, v in agg_stats.items()}
+        return agg_stats
+    return agg_stats
+
+
+def list_dirs(path, return_type='str'):
+    dirs = [d for d in Path(path).iterdir() if d.is_dir()]
+    if return_type == 'str':
+        dirs = [str(d) for d in dirs]
+    return dirs
+
+
+def list_files(path, return_type='str'):
+    files = [d for d in Path(path).iterdir() if d.is_file()]
+    if return_type == 'str':
+        files = [str(f) for f in files]
+    return files
 
 
 def list_dir_and_file(path):
@@ -502,9 +570,12 @@ def f(object):
     return str(object)
 
 
-def get_first_value_of_dict(dct):
-    # ret = list(dct.values())[0]  # slow but readable
-    ret = next(iter(dct.values()))  # fast
+def get_first_key_or_value_of_dict(dct: dict, mode='key'):
+    if mode == 'value':
+        # ret = list(dct.values())[0]  # slow but readable
+        ret = next(iter(dct.values()))  # fast
+    elif mode == 'key':
+        ret = next(iter(dct.keys()))  # fast
     return ret
 
 
